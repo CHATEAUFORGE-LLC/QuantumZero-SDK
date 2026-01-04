@@ -1,0 +1,40 @@
+sequenceDiagram
+    autonumber
+    participant Runner as Test Runner (Flutter Integration Test)
+    participant Wrapper as Crypto Interface (Dart)
+    participant Signer as Signing Lib (Ed25519/Secp256k1)
+    participant ZKP as ZKP Engine (Mopro/Rust)
+
+    Note over Runner, ZKP: Goal: Validate W3C Compliance & Performance
+    
+    %% W3C Compliance Check
+    Runner->>Wrapper: testSignatureScheme(payload, "EdDSA")
+    activate Runner
+    Wrapper->>Signer: sign(payload, privateKey)
+    activate Signer
+    Signer-->>Wrapper: signature_bytes
+    deactivate Signer
+    
+    Wrapper->>Signer: verify(payload, signature, publicKey)
+    activate Signer
+    Signer-->>Wrapper: true (Valid)
+    deactivate Signer
+    
+    Wrapper-->>Runner: Passed (W3C Compliant)
+    
+    %% ZKP Support Check
+    Runner->>Wrapper: benchmarkZKP(circuit, inputs)
+    
+    Note right of Runner: Start Timer ⏱️
+    
+    Wrapper->>ZKP: generateProof(inputs)
+    activate ZKP
+    ZKP-->>Wrapper: proof_hex
+    deactivate ZKP
+    
+    Note right of Runner: Stop Timer (Must be < 3s)
+    
+    Wrapper-->>Runner: Return Proof + Duration
+    deactivate Runner
+    
+    Note over Runner: Validation Complete.\nSelection Documented.
