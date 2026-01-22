@@ -1,0 +1,32 @@
+[package]
+name = "quantumzero_rust_sdk"
+version = "1.0.0"
+edition = "2021"
+authors = ["ChateauForge LLC"]
+description = "A Rust SDK for the QuantumZero identity platform - issuer integration"
+license = "Private"
+
+[dependencies]
+# Cryptographic primitives
+ed25519-dalek = "2.1"
+sha2 = "0.10"
+rand = "0.8"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+thiserror = "1.0"
+
+# Encoding/Decoding
+base64 = "0.22"
+hex = "0.4"
+
+[dev-dependencies]
+criterion = "0.5"
+tokio = { version = "1", features = ["full"] }
+
+[[bench]]
+name = "crypto_benchmark"
+harness = false
