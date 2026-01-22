@@ -11,6 +11,8 @@ license = "Private"
 ed25519-dalek = "2.1"
 sha2 = "0.10"
 rand = "0.8"
+p256 = { version = "0.13", features = ["ecdsa"] }
+signature = "2.1"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }

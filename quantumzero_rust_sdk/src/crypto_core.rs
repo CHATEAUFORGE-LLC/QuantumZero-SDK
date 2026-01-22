@@ -20,6 +20,12 @@ impl CryptoCore {
 
     /// Generates a new Ed25519 key pair compliant with W3C DID standards
     /// 
+    /// # ⚠️ SECURITY WARNING
+    /// **Generates a SOFTWARE key in memory.**
+    /// - **DO NOT USE** for Root Identity on Mobile (Task #32 requires Hardware Keys).
+    /// - Use this only for testing, server-side operations, or ephemeral session keys.
+    /// - For mobile apps, integrate with platform-specific secure key storage (e.g., Android StrongBox, iOS Secure Enclave).
+    ///
     /// # Example
     /// ```
     /// use quantumzero_rust_sdk::CryptoCore;
@@ -79,6 +85,23 @@ impl CryptoCore {
         verifying_key: &VerifyingKey,
     ) -> bool {
         verifying_key.verify(data, signature).is_ok()
+    }
+
+    /// Verifies a NIST P-256 signature (Used for Android StrongBox Keys)
+    pub fn verify_hardware_signature(
+        &self,
+        data: &[u8],
+        signature_bytes: &[u8],
+        public_key_bytes: &[u8],
+    ) -> bool {
+        // Parse the public key (SEC1 encoded)
+        if let Ok(verifying_key) = P256VerifyingKey::from_sec1_bytes(public_key_bytes) {
+            // Parse the signature (ASN.1 DER or Fixed size - Android usually returns DER)
+            if let Ok(signature) = P256Signature::from_der(signature_bytes) {
+                return verifying_key.verify(data, &signature).is_ok();
+            }
+        }
+        false
     }
 }
 
