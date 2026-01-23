@@ -1,6 +1,7 @@
-use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey, Signature};
+use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey, Signature, SecretKey};
 use rand::rngs::OsRng;
 use sha2::{Sha256, Digest};
+use p256::ecdsa::{signature::Verifier as P256Verifier, Signature as P256Signature, VerifyingKey as P256VerifyingKey};
 
 /// Core cryptographic operations for QuantumZero identity platform
 /// Provides W3C DID-compliant Ed25519 key generation, signing, and verification
@@ -20,7 +21,7 @@ impl CryptoCore {
 
     /// Generates a new Ed25519 key pair compliant with W3C DID standards
     /// 
-    /// # ⚠️ SECURITY WARNING
+    /// # SECURITY WARNING
     /// **Generates a SOFTWARE key in memory.**
     /// - **DO NOT USE** for Root Identity on Mobile (Task #32 requires Hardware Keys).
     /// - Use this only for testing, server-side operations, or ephemeral session keys.
@@ -35,7 +36,9 @@ impl CryptoCore {
     /// ```
     pub fn generate_key_pair(&self) -> KeyPair {
         let mut csprng = OsRng;
-        let signing_key = SigningKey::generate(&mut csprng);
+        // Generate 32 random bytes for the secret key
+        let secret_key = SecretKey::generate(&mut csprng);
+        let signing_key = SigningKey::from_bytes(&secret_key);
         let verifying_key = signing_key.verifying_key();
 
         KeyPair {
