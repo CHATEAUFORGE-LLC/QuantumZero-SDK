@@ -35,10 +35,12 @@ impl CryptoCore {
     /// let key_pair = crypto.generate_key_pair();
     /// ```
     pub fn generate_key_pair(&self) -> KeyPair {
+        use rand::RngCore;
         let mut csprng = OsRng;
         // Generate 32 random bytes for the secret key
-        let secret_key = SecretKey::generate(&mut csprng);
-        let signing_key = SigningKey::from_bytes(&secret_key);
+        let mut secret_bytes = [0u8; 32];
+        csprng.fill_bytes(&mut secret_bytes);
+        let signing_key = SigningKey::from_bytes(&secret_bytes);
         let verifying_key = signing_key.verifying_key();
 
         KeyPair {
