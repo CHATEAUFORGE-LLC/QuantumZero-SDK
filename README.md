@@ -36,7 +36,7 @@ dependencies:
 **Installation:**
 ```toml
 [dependencies]
-quantumzero_rust_sdk = { git = "https://github.com/CHATEAUFORGE-LLC/QuantumZero-SDK", subdir = "quantumzero_rust_sdk" }
+quantumzero_rust_sdk = { git = "https://github.com/CHATEAUFORGE-LLC/QuantumZero-SDK", branch = "main" }
 ```
 
 [View Rust SDK Documentation →](./quantumzero_rust_sdk/README.md)
@@ -44,10 +44,10 @@ quantumzero_rust_sdk = { git = "https://github.com/CHATEAUFORGE-LLC/QuantumZero-
 ## Interoperability
 
 Both SDKs are designed to be **fully interoperable**:
-- ✅ Same cryptographic algorithms (Ed25519, SHA-256)
-- ✅ W3C DID-compliant key generation
-- ✅ Cross-platform signature verification
-- ✅ Compatible with QuantumZero service protocols
+- Same cryptographic algorithms (Ed25519, SHA-256)
+- W3C DID-compliant key generation
+- Cross-platform signature verification
+- Compatible with QuantumZero service protocols
 
 **Example Workflow:**
 1. Issuer uses Rust SDK to generate keys and issue credentials
@@ -80,16 +80,17 @@ Both SDKs are designed to be **fully interoperable**:
 - **W3C DID-Compliant:** Generates `did:key` compatible key pairs
 - **Ed25519 Signing:** Fast, secure elliptic curve cryptography
 - **SHA-256 Hashing:** Content addressing and ZKP inputs
+- **Hardware Key Support:** P-256 signature verification for Android StrongBox (Rust SDK)
 - **Cross-Platform:** Native performance on both Rust and Dart platforms
 - **Standardized API:** Consistent interface across languages
-- **Well-Tested:** Comprehensive unit tests and benchmarks
+- **Well-Tested:** 26+ comprehensive tests and performance benchmarks
 
 ## Development Status
 
 | Component | Status | Version |
 |-----------|--------|---------|
-| Dart SDK  | ✅ Stable | 1.0.0 |
-| Rust SDK  | ✅ Stable | 1.0.0 |
+| Dart SDK  | Stable | 1.0.0 |
+| Rust SDK  | Stable | 1.0.0 |
 
 ## Getting Started
 

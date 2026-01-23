@@ -8,8 +8,10 @@ A Rust library for the QuantumZero Identity Platform. This SDK provides W3C-comp
 - **Cryptographic Primitives:**
   - **Signing:** Ed25519 (Edwards-curve Digital Signature Algorithm)
   - **Hashing:** SHA-256 (for content addressing and ZKP inputs)
+  - **Hardware Keys:** P-256 (NIST) signature verification for Android StrongBox integration
 - **Issuer Integration:** Designed for issuers to integrate with the QuantumZero service
 - **Performance:** Native Rust performance with zero-cost abstractions
+- **Comprehensive Testing:** 26+ unit tests covering edge cases and security scenarios
 
 ## Target Use Cases
 
@@ -28,7 +30,7 @@ Add the dependency to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-quantumzero_rust_sdk = { git = "https://github.com/CHATEAUFORGE-LLC/QuantumZero-SDK", subdir = "quantumzero_rust_sdk" }
+quantumzero_rust_sdk = { git = "https://github.com/CHATEAUFORGE-LLC/QuantumZero-SDK", branch = "main" }
 ```
 
 Or for local development:
@@ -108,7 +110,42 @@ fn main() {
 }
 ```
 
+### Verifying Hardware Signatures (P-256)
+
+For verifying signatures from hardware-backed keys (e.g., Android StrongBox):
+
+```rust
+use quantumzero_rust_sdk::CryptoCore;
+
+fn main() {
+    let crypto = CryptoCore::new();
+    
+    // P-256 public key (SEC1 encoded, 33 or 65 bytes)
+    let public_key_bytes = vec![/* ... */];
+    
+    // Signature from hardware key (ASN.1 DER format)
+    let signature_bytes = vec![/* ... */];
+    
+    let data = b"Data signed by hardware key";
+    
+    let is_valid = crypto.verify_hardware_signature(
+        data,
+        &signature_bytes,
+        &public_key_bytes,
+    );
+    
+    println!("Hardware signature valid: {}", is_valid);
+}
+```
+
 ## Running Tests
+
+The SDK includes 26+ comprehensive tests covering:
+- Key generation uniqueness and consistency
+- Hash determinism and edge cases
+- Signature verification and tamper detection
+- Hardware signature verification
+- Cross-verification workflows
 
 ```bash
 cd quantumzero_rust_sdk

@@ -20,11 +20,19 @@ This package is intended for use within the QuantumZero ecosystem (Mobile App & 
 ### Installation
 Add the dependency to your `pubspec.yaml`:
 
-``` yaml
+```yaml
 dependencies:
   quantumzero_dart_sdk:
-    path: ./  # Local path if developing locally
+    git:
+      url: https://github.com/CHATEAUFORGE-LLC/QuantumZero-SDK
+      path: quantumzero_dart_sdk
+```
 
+For local development:
+```yaml
+dependencies:
+  quantumzero_dart_sdk:
+    path: ../QuantumZero-SDK/quantumzero_dart_sdk
 ```
 
 ## Usage
@@ -45,6 +53,26 @@ final data = [1, 2, 3, 4, 5];
 final signature = await crypto.signData(data, keyPair);
 
 print('Signature bytes: ${signature.bytes}');
+```
+
+### Verifying Signatures
+```dart
+final publicKey = await keyPair.extractPublicKey();
+final isValid = await crypto.verifySignature(
+  data: data,
+  signature: signature,
+  publicKey: publicKey,
+);
+
+print('Signature valid: $isValid');
+```
+
+### Hashing Data
+```dart
+final data = [1, 2, 3, 4, 5];
+final hash = await crypto.hashData(data);
+
+print('SHA-256 hash: $hash');
 ```
 
 ## Validation & Benchmarking
