@@ -1,0 +1,21 @@
+services:
+  issuer-app:
+    build:
+      context: .
+      dockerfile: issuer_app/Dockerfile
+    container_name: qz-issuer-app
+    environment:
+      ISSUANCE_API_URL: http://qz-issuance-api:8081
+      LEDGER_URL: http://ledger-browser:8000
+      BIND_ADDRESS: 0.0.0.0:8090
+      RUST_LOG: info
+    ports:
+      - "8090:8090"
+    networks:
+      - quantumzero-network
+    restart: unless-stopped
+
+networks:
+  quantumzero-network:
+    external: true
+    name: quantumzero-network
