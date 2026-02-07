@@ -155,6 +155,107 @@ struct CreateIssuanceRequestForm {
     credential_values: String, // JSON string
 }
 
+fn default_endorser_did() -> String {
+    std::env::var("QZ_ENDORSER_DID").unwrap_or_else(|_| "Cbkb3vmwitw4DoxkitzxdJ".to_string())
+}
+
+fn default_endorser_name() -> String {
+    std::env::var("QZ_ENDORSER_ALIAS").unwrap_or_else(|_| "QZ-Endorser".to_string())
+}
+
+async fn ensure_acapy_configured(
+    state: &AppState,
+    endorser_did_override: Option<String>,
+    endorser_name_override: Option<String>,
+) -> Result<(), String> {
+    let (did, verkey, signing_key_hex, seed, endorser_connection_id, ledger_status) = {
+        let info = state.issuer_info.lock().unwrap();
+        (
+            info.did.clone(),
+            info.verkey.clone(),
+            info.signing_key_hex.clone(),
+            info.seed.clone(),
+            info.endorser_connection_id.clone(),
+            info.ledger_status.clone(),
+        )
+    };
+
+    let (did, verkey, signing_key_hex) = match (did, verkey, signing_key_hex) {
+        (Some(did), Some(verkey), Some(signing_key_hex)) => (did, verkey, signing_key_hex),
+        _ => return Err("DID not created yet. Create a DID first.".to_string()),
+    };
+
+    if ledger_status.as_deref() == Some("acapy_configured") {
+        return Ok(());
+    }
+
+    if ledger_status.as_deref() != Some("ledger") {
+        return Err("Issuer must be approved and on ledger first. Sync with ledger to check status.".to_string());
+    }
+
+    let endorser_did = endorser_did_override
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(default_endorser_did);
+    let endorser_name = endorser_name_override
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(default_endorser_name);
+
+    let seed = match seed {
+        Some(seed) => seed,
+        None => {
+            let signing_key_bytes = hex::decode(&signing_key_hex)
+                .map_err(|_| "Failed to decode signing key for seed reconstruction".to_string())?;
+
+            match String::from_utf8(signing_key_bytes) {
+                Ok(seed) if seed.len() == 32 => seed,
+                _ => {
+                    return Err("Issuer seed is unavailable. Recreate the issuer DID to generate a seed compatible with ACA-Py.".to_string());
+                }
+            }
+        }
+    };
+
+    if let Err(e) = state.acapy_client.create_did_with_seed(&seed).await {
+        let error_message = e.to_string();
+        if !error_message.contains("already exists") {
+            return Err(format!("Failed to create DID in ACA-Py wallet: {}", error_message));
+        }
+    }
+
+    if let Some(ref conn_id) = endorser_connection_id {
+        state
+            .acapy_client
+            .set_endorser_info_on_connection(conn_id, &endorser_did, Some(&endorser_name))
+            .await
+            .map_err(|e| format!("Failed to set endorser info: {}", e))?;
+
+        state
+            .acapy_client
+            .set_public_did_with_connection(&did, conn_id)
+            .await
+            .map_err(|e| format!("Failed to set ACA-Py public DID: {}", e))?;
+    } else {
+        state
+            .acapy_client
+            .set_endorser_info(&endorser_did, Some(&endorser_name))
+            .await
+            .map_err(|e| format!("Failed to set endorser info: {}", e))?;
+
+        state
+            .acapy_client
+            .set_public_did(&did)
+            .await
+            .map_err(|e| format!("Failed to set ACA-Py public DID: {}", e))?;
+    }
+
+    let mut info = state.issuer_info.lock().unwrap();
+    info.ledger_status = Some("acapy_configured".to_string());
+    info.did = Some(did);
+    info.verkey = Some(verkey);
+
+    Ok(())
+}
+
 async fn index() -> impl Responder {
     let html = include_str!("../static/index.html");
     HttpResponse::Ok().content_type("text/html").body(html)
@@ -204,7 +305,7 @@ async fn create_did(
     let signing_key_hex = hex::encode(signing_key.to_bytes());
 
     let role = form.role.clone().unwrap_or_else(|| "ENDORSER".to_string());
-    
+
     let mut info = state.issuer_info.lock().unwrap();
     info.did = Some(did.clone());
     info.verkey = Some(verkey.clone());
@@ -239,7 +340,9 @@ async fn register_issuer(state: web::Data<AppState>) -> impl Responder {
         &info.role,
         &info.signing_key_hex,
     ) {
-        (Some(d), Some(v), Some(a), Some(r), Some(sk)) => (d.clone(), v.clone(), a.clone(), r.clone(), sk.clone()),
+        (Some(d), Some(v), Some(a), Some(r), Some(sk)) => {
+            (d.clone(), v.clone(), a.clone(), r.clone(), sk.clone())
+        }
         _ => {
             return HttpResponse::BadRequest().json(serde_json::json!({
                 "success": false,
@@ -249,7 +352,6 @@ async fn register_issuer(state: web::Data<AppState>) -> impl Responder {
     };
     drop(info);
 
-    // Reconstruct key pair from hex
     let signing_key_bytes = match hex::decode(&signing_key_hex) {
         Ok(bytes) => bytes,
         Err(e) => {
@@ -260,14 +362,12 @@ async fn register_issuer(state: web::Data<AppState>) -> impl Responder {
         }
     };
 
-    let signing_key = match ed25519_dalek::SigningKey::from_bytes(
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(
         &signing_key_bytes
             .try_into()
             .map_err(|_| "Invalid key length")
             .unwrap(),
-    ) {
-        key => key,
-    };
+    );
     let verifying_key = signing_key.verifying_key();
 
     let request = IssuerOnboardingRequest {
@@ -315,39 +415,6 @@ async fn setup_acapy_did(
     state: web::Data<AppState>,
     form: Option<web::Json<SetupAcaPyRequest>>,
 ) -> impl Responder {
-    let info = state.issuer_info.lock().unwrap();
-
-    let (did, verkey, signing_key_hex, seed, endorser_connection_id) = match (
-        &info.did,
-        &info.verkey,
-        &info.signing_key_hex,
-        &info.seed,
-        &info.endorser_connection_id,
-    ) {
-        (Some(d), Some(v), Some(sk), seed_opt, conn_id) => (
-            d.clone(),
-            v.clone(),
-            sk.clone(),
-            seed_opt.clone(),
-            conn_id.clone(),
-        ),
-        _ => {
-            return HttpResponse::BadRequest().json(serde_json::json!({
-                "success": false,
-                "error": "DID not created yet. Create a DID first."
-            }));
-        }
-    };
-    
-    // Check if issuer is approved on ledger
-    if info.ledger_status.as_deref() != Some("ledger") {
-        return HttpResponse::BadRequest().json(serde_json::json!({
-            "success": false,
-            "error": "Issuer must be approved and on ledger first. Sync with ledger to check status."
-        }));
-    }
-    drop(info);
-
     let endorser_did = form
         .as_ref()
         .and_then(|data| data.endorser_did.clone())
@@ -356,112 +423,15 @@ async fn setup_acapy_did(
         .as_ref()
         .and_then(|data| data.endorser_name.clone())
         .filter(|value| !value.trim().is_empty());
-
-    // Import the DID into ACA-Py wallet and set as public
-    // This requires recreating the DID using the same seed in ACA-Py
-    tracing::info!("Setting up DID in ACA-Py: {}", did);
-    let seed = match seed {
-        Some(seed) => seed,
-        None => {
-            let signing_key_bytes = match hex::decode(&signing_key_hex) {
-                Ok(bytes) => bytes,
-                Err(_) => {
-                    return HttpResponse::InternalServerError().json(serde_json::json!({
-                        "success": false,
-                        "error": "Failed to decode signing key for seed reconstruction"
-                    }));
-                }
-            };
-
-            match String::from_utf8(signing_key_bytes) {
-                Ok(seed) if seed.len() == 32 => seed,
-                _ => {
-                    return HttpResponse::BadRequest().json(serde_json::json!({
-                        "success": false,
-                        "error": "Issuer seed is unavailable. Recreate the issuer DID to generate a seed compatible with ACA-Py."
-                    }));
-                }
-            }
-        }
-    };
-
-    match state.acapy_client.create_did_with_seed(&seed).await {
-        Ok(result) => {
-            let normalize = |value: &str| {
-                value
-                    .strip_prefix("did:sov:")
-                    .unwrap_or(value)
-                    .to_string()
-            };
-            if normalize(&result.did) != normalize(&did) {
-                return HttpResponse::BadRequest().json(serde_json::json!({
-                    "success": false,
-                    "error": "Seed-derived DID does not match the issuer DID. Recreate the issuer DID to align with ACA-Py."
-                }));
-            }
-        }
-        Err(e) => {
-            let error_message = e.to_string();
-            if !error_message.contains("already exists") {
-                tracing::error!("Failed to create DID in ACA-Py wallet: {}", error_message);
-                return HttpResponse::InternalServerError().json(serde_json::json!({
-                    "success": false,
-                    "error": format!("Failed to create DID in ACA-Py wallet: {}", error_message)
-                }));
-            }
-        }
-    }
-
-    if let Some(ref endorser_did) = endorser_did {
-        let endorser_result = if let Some(ref conn_id) = endorser_connection_id {
-            state
-                .acapy_client
-                .set_endorser_info_on_connection(conn_id, endorser_did, endorser_name.as_deref())
-                .await
-        } else {
-            state
-                .acapy_client
-                .set_endorser_info(endorser_did, endorser_name.as_deref())
-                .await
-        };
-
-        if let Err(e) = endorser_result {
-            tracing::error!("Failed to set endorser info: {}", e);
-            return HttpResponse::InternalServerError().json(serde_json::json!({
-                "success": false,
-                "error": format!("Failed to set endorser info: {}", e)
-            }));
-        }
-    }
-
-    let public_did_result = if let Some(ref conn_id) = endorser_connection_id {
-        state.acapy_client.set_public_did_with_connection(&did, conn_id).await
-    } else {
-        state.acapy_client.set_public_did(&did).await
-    };
-
-    match public_did_result {
-        Ok(result) => {
-            let mut info = state.issuer_info.lock().unwrap();
-            info.ledger_status = Some("acapy_configured".to_string());
-
-            tracing::info!("ACA-Py public DID set: {} (posture: {:?})", result.did, result.posture);
-
-            HttpResponse::Ok().json(serde_json::json!({
-                "success": true,
-                "did": result.did,
-                "posture": result.posture,
-                "endorser_did": endorser_did,
-                "message": "ACA-Py configured. You can now create schemas and credential definitions."
-            }))
-        }
-        Err(e) => {
-            tracing::error!("Failed to set ACA-Py public DID: {}", e);
-            HttpResponse::InternalServerError().json(serde_json::json!({
-                "success": false,
-                "error": format!("Failed to configure ACA-Py: {}. Ensure issuer seed matches ACA-Py agent seed.", e)
-            }))
-        }
+    match ensure_acapy_configured(state.get_ref(), endorser_did, endorser_name).await {
+        Ok(_) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "message": "ACA-Py configured. You can now create schemas and credential definitions."
+        })),
+        Err(error) => HttpResponse::BadRequest().json(serde_json::json!({
+            "success": false,
+            "error": error
+        })),
     }
 }
 
@@ -473,7 +443,7 @@ async fn connect_endorser(
         .endorser_did
         .clone()
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| "AUPCKiiq1ema4fbkXYP2Kg".to_string());
+        .unwrap_or_else(|| "Cbkb3vmwitw4DoxkitzxdJ".to_string());
     let endorser_name = form
         .endorser_name
         .clone()
@@ -820,7 +790,7 @@ async fn create_schema(
 ) -> impl Responder {
     let info = state.issuer_info.lock().unwrap();
 
-    let (did, signing_key_hex, ledger_status, endorser_connection_id) = match (&info.did, &info.signing_key_hex, &info.ledger_status, &info.endorser_connection_id) {
+    let (did, signing_key_hex, mut ledger_status, endorser_connection_id) = match (&info.did, &info.signing_key_hex, &info.ledger_status, &info.endorser_connection_id) {
         (Some(d), Some(sk), ledger_status, conn_id) => (d.clone(), sk.clone(), ledger_status.clone(), conn_id.clone()),
         _ => {
             return HttpResponse::BadRequest().json(serde_json::json!({
@@ -838,6 +808,16 @@ async fn create_schema(
         }));
     }
     drop(info);
+
+    if ledger_status.as_deref() == Some("ledger") {
+        if let Err(error) = ensure_acapy_configured(state.get_ref(), None, None).await {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "success": false,
+                "error": error
+            }));
+        }
+        ledger_status = Some("acapy_configured".to_string());
+    }
 
     // Parse attributes
     let attributes: Vec<String> = form
@@ -962,7 +942,7 @@ async fn create_cred_def(
 ) -> impl Responder {
     let info = state.issuer_info.lock().unwrap();
 
-    let (did, signing_key_hex, ledger_status, endorser_connection_id) = match (
+    let (did, signing_key_hex, mut ledger_status, endorser_connection_id) = match (
         &info.did,
         &info.signing_key_hex,
         &info.ledger_status,
@@ -990,6 +970,16 @@ async fn create_cred_def(
         }));
     }
     drop(info);
+
+    if ledger_status.as_deref() == Some("ledger") {
+        if let Err(error) = ensure_acapy_configured(state.get_ref(), None, None).await {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "success": false,
+                "error": error
+            }));
+        }
+        ledger_status = Some("acapy_configured".to_string());
+    }
 
     let normalized_schema_id = form
         .schema_id
