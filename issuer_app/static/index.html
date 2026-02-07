@@ -260,6 +260,13 @@
                         <input type="text" id="alias" name="alias" placeholder="e.g., University of Example" required>
                     </div>
                     <div class="form-group">
+                        <label for="seed">Seed (optional, 32 chars)</label>
+                        <input type="text" id="seed" name="seed" placeholder="32-character seed from QuantumZero" minlength="32" maxlength="32">
+                        <small style="color: #666; display: block; margin-top: 5px;">
+                            Provide a 32-character seed if QuantumZero requires a deterministic DID. Leave blank to auto-generate.
+                        </small>
+                    </div>
+                    <div class="form-group">
                         <label for="role">Ledger Role</label>
                         <select id="role" name="role" style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 5px; font-size: 14px;">
                             <option value="ENDORSER">ENDORSER (Recommended - Can create schemas/cred-defs)</option>
@@ -286,6 +293,29 @@
                     <button id="sync-ledger-btn" style="background: #28a745;">Sync with Ledger</button>
                 </div>
                 <div id="register-message"></div>
+            </div>
+
+            <!-- Setup ACA-Py Card -->
+            <div class="card">
+                <h2>🧩 Setup ACA-Py</h2>
+                <p style="margin-bottom: 15px; color: #666; font-size: 14px;">
+                    Configure ACA-Py public DID and endorser settings
+                </p>
+                <form id="setup-acapy-form">
+                    <div class="form-group">
+                        <label for="endorser-did">Endorser Public DID</label>
+                        <input type="text" id="endorser-did" name="endorser_did" value="AUPCKiiq1ema4fbkXYP2Kg" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="endorser-name">Endorser Name (optional)</label>
+                        <input type="text" id="endorser-name" name="endorser_name" placeholder="trustee">
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <button type="button" id="connect-endorser-btn" style="background: #0d6efd;">Connect Endorser</button>
+                        <button type="submit" style="background: #6f42c1;">Setup ACA-Py</button>
+                    </div>
+                </form>
+                <div id="setup-acapy-message"></div>
             </div>
 
             <!-- Create Schema Card -->
@@ -505,6 +535,10 @@
             const formData = new FormData(e.target);
             const data = Object.fromEntries(formData);
 
+            if (data.seed && data.seed.trim().length === 0) {
+                delete data.seed;
+            }
+
             try {
                 const response = await fetch('/api/create-did', {
                     method: 'POST',
@@ -559,6 +593,61 @@
                 }
             } catch (error) {
                 showMessage('register-message', 'Error: ' + error.message, true);
+            }
+        });
+
+        document.getElementById('setup-acapy-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData);
+
+            if (data.endorser_name && data.endorser_name.trim().length === 0) {
+                delete data.endorser_name;
+            }
+
+            try {
+                const response = await fetch('/api/setup-acapy', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    showMessage('setup-acapy-message', 'ACA-Py configured successfully');
+                    loadIssuerInfo();
+                } else {
+                    showMessage('setup-acapy-message', result.error || 'Failed to setup ACA-Py', true);
+                }
+            } catch (error) {
+                showMessage('setup-acapy-message', 'Error: ' + error.message, true);
+            }
+        });
+
+        document.getElementById('connect-endorser-btn').addEventListener('click', async () => {
+            const form = document.getElementById('setup-acapy-form');
+            const formData = new FormData(form);
+            const data = Object.fromEntries(formData);
+
+            if (data.endorser_name && data.endorser_name.trim().length === 0) {
+                delete data.endorser_name;
+            }
+
+            try {
+                const response = await fetch('/api/connect-endorser', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    showMessage('setup-acapy-message', 'Endorser connection established');
+                } else {
+                    showMessage('setup-acapy-message', result.error || 'Failed to connect endorser', true);
+                }
+            } catch (error) {
+                showMessage('setup-acapy-message', 'Error: ' + error.message, true);
             }
         });
 

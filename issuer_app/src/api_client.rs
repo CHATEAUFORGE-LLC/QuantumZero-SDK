@@ -3,6 +3,7 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use uuid::Uuid;
 
 /// API client for QuantumZero server interactions
@@ -45,6 +46,8 @@ pub struct SchemaRequest {
     pub version: String,
     pub attributes: Vec<String>,
     pub schema_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signed_transaction: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -53,7 +56,11 @@ pub struct CredDefRequest {
     pub schema_id: String,
     pub tag: String,
     pub support_revocation: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Value>,
     pub cred_def_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signed_transaction: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

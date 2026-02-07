@@ -1,4 +1,56 @@
 services:
+  # ACA-Py agent for the issuer - handles ledger operations and DIDComm
+  issuer-acapy:
+    image: ghcr.io/openwallet-foundation/acapy-agent:py3.12-1.2-lts
+    container_name: qz-issuer-acapy
+    command: >
+      start
+      --inbound-transport http 0.0.0.0 8000
+      --outbound-transport http
+      --admin 0.0.0.0 11000
+      --admin-insecure-mode
+      --label "QuantumZero-Issuer-Agent"
+      --endpoint http://issuer-acapy:8000
+      --auto-provision
+      --wallet-type askar
+      --wallet-name qz-issuer
+      --wallet-key qz-issuer-secure-key-change-in-production
+      --wallet-allow-insecure-seed
+      --genesis-url http://ledger-browser:8000/genesis
+      --auto-accept-invites
+      --auto-accept-requests
+      --auto-respond-credential-proposal
+      --auto-respond-credential-offer
+      --auto-respond-credential-request
+      --auto-store-credential
+      --auto-respond-presentation-proposal
+      --auto-respond-presentation-request
+      --auto-verify-presentation
+      --public-invites
+      --tails-server-base-url http://tails-server:6543
+      --endorser-protocol-role author
+      --endorser-public-did AUPCKiiq1ema4fbkXYP2Kg
+      --endorser-alias QZ-Endorser
+      --auto-request-endorsement
+      --auto-write-transactions
+      --auto-create-revocation-transactions
+      --log-level info
+    ports:
+      - "11001:11000"
+      - "8002:8000"
+    volumes:
+      - issuer_acapy_data:/home/aries/.acapy_agent
+    networks:
+      - quantumzero-network
+      - indy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11000/status/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Issuer application - web UI for creating schemas, cred-defs, and managing credentials
   issuer-app:
     build:
       context: .
@@ -7,15 +59,27 @@ services:
     environment:
       ISSUANCE_API_URL: http://qz-issuance-api:8081
       LEDGER_URL: http://ledger-browser:8000
+      ACAPY_ADMIN_URL: http://issuer-acapy:11000
+      TRUSTEE_ACAPY_ADMIN_URL: http://acapy-endorser:11000
       BIND_ADDRESS: 0.0.0.0:8090
       RUST_LOG: info
     ports:
-      - "8090:8090"
+      - "3030:8090"
     networks:
       - quantumzero-network
+      - indy
+    depends_on:
+      issuer-acapy:
+        condition: service_healthy
     restart: unless-stopped
 
 networks:
   quantumzero-network:
     external: true
     name: quantumzero-network
+  indy:
+    external: true
+    name: indy
+
+volumes:
+  issuer_acapy_data:
