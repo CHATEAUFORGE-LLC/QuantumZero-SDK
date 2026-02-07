@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuantumZero Issuer Portal</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+        }
+
+        .card {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .card h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 18px;
+            border-bottom: 2px solid #f0f0f0;
+            padding-bottom: 10px;
+        }
+
+        .info-box {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            border-left: 4px solid #667eea;
+        }
+
+        .info-box strong {
+            display: block;
+            color: #667eea;
+            margin-bottom: 5px;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+
+        .info-box span {
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            word-break: break-all;
+            display: block;
+            color: #333;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        .form-group input,
+        .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 5px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 80px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: auto;
+        }
+
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: background 0.3s;
+            width: 100%;
+        }
+
+        button:hover {
+            background: #5568d3;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status.pending {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status.approved {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status.active {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        .list-item {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            border-left: 3px solid #667eea;
+        }
+
+        .list-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+
+        .list-item-title {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .list-item-detail {
+            font-size: 12px;
+            color: #666;
+            font-family: 'Courier New', monospace;
+        }
+
+        .message {
+            padding: 12px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+
+        .message.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .message.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 30px;
+            color: #999;
+        }
+
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔐 QuantumZero Issuer Portal</h1>
+            <p class="subtitle">Credential Issuance Management Platform</p>
+        </header>
+
+        <div class="grid">
+            <!-- Issuer Information Card -->
+            <div class="card">
+                <h2>📋 Issuer Information</h2>
+                <div id="issuer-info">
+                    <div class="empty-state">No DID created yet</div>
+                </div>
+            </div>
+
+            <!-- Create DID Card -->
+            <div class="card">
+                <h2>🆔 Create Issuer DID</h2>
+                <form id="create-did-form">
+                    <div class="form-group">
+                        <label for="alias">Issuer Alias</label>
+                        <input type="text" id="alias" name="alias" placeholder="e.g., University of Example" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="seed">Seed (optional, 32 chars)</label>
+                        <input type="text" id="seed" name="seed" placeholder="32-character seed from QuantumZero" minlength="32" maxlength="32">
+                        <small style="color: #666; display: block; margin-top: 5px;">
+                            Provide a 32-character seed if QuantumZero requires a deterministic DID. Leave blank to auto-generate.
+                        </small>
+                    </div>
+                    <div class="form-group">
+                        <label for="role">Ledger Role</label>
+                        <select id="role" name="role" style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 5px; font-size: 14px;">
+                            <option value="ENDORSER">ENDORSER (Recommended - Can create schemas/cred-defs)</option>
+                            <option value="TRUST_ANCHOR">TRUST_ANCHOR (Full permissions)</option>
+                        </select>
+                        <small style="color: #666; display: block; margin-top: 5px;">
+                            ENDORSER: Can publish schemas and credential definitions<br>
+                            TRUST_ANCHOR: Can also write DIDs to ledger
+                        </small>
+                    </div>
+                    <button type="submit">Generate DID & Keys</button>
+                </form>
+                <div id="did-message"></div>
+            </div>
+
+            <!-- Register Issuer Card -->
+            <div class="card">
+                <h2>📝 Register Issuer</h2>
+                <p style="margin-bottom: 15px; color: #666; font-size: 14px;">
+                    Submit issuer registration request to QuantumZero Server
+                </p>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <button id="register-issuer-btn">Submit Registration Request</button>
+                    <button id="sync-ledger-btn" style="background: #28a745;">Sync with Ledger</button>
+                </div>
+                <div id="register-message"></div>
+            </div>
+
+            <!-- Setup ACA-Py Card -->
+            <div class="card">
+                <h2>🧩 Setup ACA-Py</h2>
+                <p style="margin-bottom: 15px; color: #666; font-size: 14px;">
+                    Configure ACA-Py public DID and endorser settings
+                </p>
+                <form id="setup-acapy-form">
+                    <div class="form-group">
+                        <label for="endorser-did">Endorser Public DID</label>
+                        <input type="text" id="endorser-did" name="endorser_did" value="Cbkb3vmwitw4DoxkitzxdJ" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="endorser-name">Endorser Name (optional)</label>
+                        <input type="text" id="endorser-name" name="endorser_name" placeholder="trustee">
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <button type="button" id="connect-endorser-btn" style="background: #0d6efd;">Connect Endorser</button>
+                        <button type="submit" style="background: #6f42c1;">Setup ACA-Py</button>
+                    </div>
+                </form>
+                <div id="setup-acapy-message"></div>
+            </div>
+
+            <!-- Create Schema Card -->
+            <div class="card">
+                <h2>📄 Create Schema</h2>
+                <form id="create-schema-form">
+                    <div class="form-group">
+                        <label for="schema-name">Schema Name</label>
+                        <input type="text" id="schema-name" name="name" value="LoginCredential" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="schema-version">Version</label>
+                        <input type="text" id="schema-version" name="version" value="1.0" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="schema-attributes">Attributes (comma-separated)</label>
+                        <input type="text" id="schema-attributes" name="attributes" value="username, email, role" required>
+                    </div>
+                    <button type="submit">Submit Schema Request</button>
+                </form>
+                <div id="schema-message"></div>
+            </div>
+
+            <!-- Create Credential Definition Card -->
+            <div class="card">
+                <h2>🔖 Create Credential Definition</h2>
+                <form id="create-cred-def-form">
+                    <div class="form-group">
+                        <label for="cred-def-schema-id">Schema ID</label>
+                        <input type="text" id="cred-def-schema-id" name="schema_id" placeholder="did:sov:...:2:SchemaName:1.0" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="cred-def-tag">Tag</label>
+                        <input type="text" id="cred-def-tag" name="tag" value="default" required>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="cred-def-revocation" name="support_revocation">
+                        <label for="cred-def-revocation" style="margin-bottom: 0;">Support Revocation</label>
+                    </div>
+                    <button type="submit">Submit Cred Def Request</button>
+                </form>
+                <div id="cred-def-message"></div>
+            </div>
+
+            <!-- Issue Credential Card -->
+            <div class="card">
+                <h2>🎫 Issue Credential</h2>
+                <form id="create-issuance-form">
+                    <div class="form-group">
+                        <label for="issuance-cred-def-id">Credential Definition ID</label>
+                        <input type="text" id="issuance-cred-def-id" name="cred_def_id" placeholder="did:sov:...:3:CL:...:tag" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="issuance-values">Credential Values (JSON)</label>
+                        <textarea id="issuance-values" name="credential_values" required>{"username": "user123", "email": "user@example.com", "role": "student"}</textarea>
+                    </div>
+                    <button type="submit">Submit Issuance Request</button>
+                </form>
+                <div id="issuance-message"></div>
+            </div>
+
+            <!-- Schemas List -->
+            <div class="card">
+                <h2>📚 My Schemas</h2>
+                <div id="schemas-list">
+                    <div class="empty-state">No schemas created yet</div>
+                </div>
+            </div>
+
+            <!-- Credential Definitions List -->
+            <div class="card">
+                <h2>📑 My Credential Definitions</h2>
+                <div id="cred-defs-list">
+                    <div class="empty-state">No credential definitions created yet</div>
+                </div>
+            </div>
+
+            <!-- Issuance Requests List -->
+            <div class="card">
+                <h2>📤 Issuance Requests</h2>
+                <div id="issuance-list">
+                    <div class="empty-state">No issuance requests yet</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '';
+
+        async function loadIssuerInfo() {
+            try {
+                const response = await fetch('/api/issuer-info');
+                const data = await response.json();
+                
+                updateIssuerInfo(data);
+                updateSchemasList(data.schemas);
+                updateCredDefsList(data.cred_defs);
+                updateIssuanceList(data.issuance_requests);
+            } catch (error) {
+                console.error('Failed to load issuer info:', error);
+            }
+        }
+
+        function updateIssuerInfo(data) {
+            const container = document.getElementById('issuer-info');
+            
+            if (!data.did) {
+                container.innerHTML = '<div class="empty-state">No DID created yet</div>';
+                return;
+            }
+
+            container.innerHTML = `
+                <div class="info-box">
+                    <strong>DID</strong>
+                    <span>${data.did}</span>
+                </div>
+                <div class="info-box">
+                    <strong>Verkey (Base58)</strong>
+                    <span>${data.verkey || 'N/A'}</span>
+                </div>
+                <div class="info-box">
+                    <strong>Alias</strong>
+                    <span>${data.alias || 'N/A'}</span>
+                </div>
+                <div class="info-box">
+                    <strong>Ledger Role</strong>
+                    <span>${data.role || 'N/A'}</span>
+                </div>
+                ${data.registration_status ? `
+                <div class="info-box">
+                    <strong>Registration Status</strong>
+                    <span class="status ${data.registration_status}">${data.registration_status}</span>
+                    ${data.ledger_status ? `<br><span class="status ${data.ledger_status === 'ledger' ? 'approved' : 'pending'}" style="font-size: 11px; padding: 3px 8px; margin-top: 5px; display: inline-block;">Ledger: ${data.ledger_status}</span>` : ''}
+                    ${data.registration_id ? `<br><small>ID: ${data.registration_id}</small>` : ''}
+                </div>
+                ` : ''}
+            `;
+        }
+
+        function updateSchemasList(schemas) {
+            const container = document.getElementById('schemas-list');
+            
+            if (!schemas || schemas.length === 0) {
+                container.innerHTML = '<div class="empty-state">No schemas created yet</div>';
+                return;
+            }
+
+            container.innerHTML = schemas.map(schema => `
+                <div class="list-item">
+                    <div class="list-item-header">
+                        <span class="list-item-title">${schema.name} v${schema.version}</span>
+                        <span class="status ${schema.status}">${schema.status}</span>
+                    </div>
+                    <div class="list-item-detail">${schema.schema_id}</div>
+                    <div style="font-size: 12px; color: #666; margin-top: 5px;">
+                        Attributes: ${schema.attributes.join(', ')}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function updateCredDefsList(credDefs) {
+            const container = document.getElementById('cred-defs-list');
+            
+            if (!credDefs || credDefs.length === 0) {
+                container.innerHTML = '<div class="empty-state">No credential definitions created yet</div>';
+                return;
+            }
+
+            container.innerHTML = credDefs.map(credDef => `
+                <div class="list-item">
+                    <div class="list-item-header">
+                        <span class="list-item-title">Tag: ${credDef.tag}</span>
+                        <span class="status ${credDef.status}">${credDef.status}</span>
+                    </div>
+                    <div class="list-item-detail">${credDef.cred_def_id}</div>
+                    <div style="font-size: 12px; color: #666; margin-top: 5px;">
+                        Schema: ${credDef.schema_id}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function updateIssuanceList(issuances) {
+            const container = document.getElementById('issuance-list');
+            
+            if (!issuances || issuances.length === 0) {
+                container.innerHTML = '<div class="empty-state">No issuance requests yet</div>';
+                return;
+            }
+
+            container.innerHTML = issuances.map(issuance => `
+                <div class="list-item">
+                    <div class="list-item-header">
+                        <span class="list-item-title">Request ${issuance.id.substring(0, 8)}...</span>
+                        <span class="status ${issuance.status}">${issuance.status}</span>
+                    </div>
+                    <div class="list-item-detail">${issuance.cred_def_id}</div>
+                    <div style="font-size: 12px; color: #666; margin-top: 5px;">
+                        Submitted: ${new Date(issuance.submitted_at).toLocaleString()}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function showMessage(elementId, message, isError = false) {
+            const container = document.getElementById(elementId);
+            container.innerHTML = `<div class="message ${isError ? 'error' : 'success'}">${message}</div>`;
+            setTimeout(() => {
+                container.innerHTML = '';
+            }, 5000);
+        }
+
+        document.getElementById('create-did-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData);
+
+            if (data.seed && data.seed.trim().length === 0) {
+                delete data.seed;
+            }
+
+            try {
+                const response = await fetch('/api/create-did', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage('did-message', `DID created successfully: ${result.did}`);
+                    loadIssuerInfo();
+                } else {
+                    showMessage('did-message', result.error || 'Failed to create DID', true);
+                }
+            } catch (error) {
+                showMessage('did-message', 'Error: ' + error.message, true);
+            }
+        });
+
+        document.getElementById('sync-ledger-btn').addEventListener('click', async () => {
+            try {
+                const response = await fetch('/api/sync-ledger', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage('register-message', `Synced! Status: ${result.ledger_status || 'Unknown'}`);
+                    loadIssuerInfo();
+                } else {
+                    showMessage('register-message', result.error || 'Sync failed', true);
+                }
+            } catch (error) {
+                showMessage('register-message', 'Error: ' + error.message, true);
+            }
+        });
+
+        document.getElementById('register-issuer-btn').addEventListener('click', async () => {
+            try {
+                const response = await fetch('/api/register-issuer', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage('register-message', `Registration submitted! Request ID: ${result.request_id}`);
+                    loadIssuerInfo();
+                } else {
+                    showMessage('register-message', result.error || 'Failed to register issuer', true);
+                }
+            } catch (error) {
+                showMessage('register-message', 'Error: ' + error.message, true);
+            }
+        });
+
+        document.getElementById('setup-acapy-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData);
+
+            if (data.endorser_name && data.endorser_name.trim().length === 0) {
+                delete data.endorser_name;
+            }
+
+            try {
+                const response = await fetch('/api/setup-acapy', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    showMessage('setup-acapy-message', 'ACA-Py configured successfully');
+                    loadIssuerInfo();
+                } else {
+                    showMessage('setup-acapy-message', result.error || 'Failed to setup ACA-Py', true);
+                }
+            } catch (error) {
+                showMessage('setup-acapy-message', 'Error: ' + error.message, true);
+            }
+        });
+
+        document.getElementById('connect-endorser-btn').addEventListener('click', async () => {
+            const form = document.getElementById('setup-acapy-form');
+            const formData = new FormData(form);
+            const data = Object.fromEntries(formData);
+
+            if (data.endorser_name && data.endorser_name.trim().length === 0) {
+                delete data.endorser_name;
+            }
+
+            try {
+                const response = await fetch('/api/connect-endorser', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    showMessage('setup-acapy-message', 'Endorser connection established');
+                } else {
+                    showMessage('setup-acapy-message', result.error || 'Failed to connect endorser', true);
+                }
+            } catch (error) {
+                showMessage('setup-acapy-message', 'Error: ' + error.message, true);
+            }
+        });
+
+        document.getElementById('create-schema-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData);
+
+            try {
+                const response = await fetch('/api/create-schema', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage('schema-message', `Schema submitted! Request ID: ${result.request_id}`);
+                    loadIssuerInfo();
+                } else {
+                    showMessage('schema-message', result.error || 'Failed to create schema', true);
+                }
+            } catch (error) {
+                showMessage('schema-message', 'Error: ' + error.message, true);
+            }
+        });
+
+        document.getElementById('create-cred-def-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = {
+                schema_id: formData.get('schema_id'),
+                tag: formData.get('tag'),
+                support_revocation: formData.get('support_revocation') === 'on'
+            };
+
+            try {
+                const response = await fetch('/api/create-cred-def', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage('cred-def-message', `Cred Def submitted! Request ID: ${result.request_id}`);
+                    loadIssuerInfo();
+                } else {
+                    showMessage('cred-def-message', result.error || 'Failed to create credential definition', true);
+                }
+            } catch (error) {
+                showMessage('cred-def-message', 'Error: ' + error.message, true);
+            }
+        });
+
+        document.getElementById('create-issuance-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData);
+
+            try {
+                const response = await fetch('/api/create-issuance', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage('issuance-message', `Issuance submitted! Request ID: ${result.request_id}`);
+                    loadIssuerInfo();
+                } else {
+                    showMessage('issuance-message', result.error || 'Failed to create issuance request', true);
+                }
+            } catch (error) {
+                showMessage('issuance-message', 'Error: ' + error.message, true);
+            }
+        });
+
+        // Load initial data
+        loadIssuerInfo();
+        
+        // Refresh every 10 seconds
+        setInterval(loadIssuerInfo, 10000);
+    </script>
+</body>
+</html>

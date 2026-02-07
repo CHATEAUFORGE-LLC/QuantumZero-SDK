@@ -1,0 +1,24 @@
+[package]
+name = "issuer_app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio.workspace = true
+actix-web.workspace = true
+actix-files = "0.6"
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+reqwest.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+base64.workspace = true
+bs58 = "0.5"
+hex.workspace = true
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+
+# Local SDK dependency
+quantumzero_rust_sdk = { path = "../quantumzero_rust_sdk" }
