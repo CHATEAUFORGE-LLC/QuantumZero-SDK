@@ -1,5 +1,5 @@
 [workspace]
-members = ["quantumzero_rust_sdk", "issuer_app"]
+members = ["quantumzero_rust_sdk", "issuer_app", "verifier_app"]
 resolver = "2"
 
 [workspace.dependencies]

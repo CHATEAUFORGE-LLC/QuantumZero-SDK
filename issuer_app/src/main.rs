@@ -1,20 +1,24 @@
-use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::time::sleep;
 use uuid::Uuid;
+use qrcode::QrCode;
+use qrcode::render::svg;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
+use url::Url;
 
 mod api_client;
 mod indy_transactions;
 mod acapy_client;
 
 use api_client::{
-    did_helpers, ApiClient, CredDefRequest, IssuanceRequest, IssuerOnboardingRequest,
-    SchemaRequest,
+    did_helpers, ApiClient, CredDefRequest, IssuerOnboardingRequest, SchemaRequest,
+    WalletTelemetryRequest,
 };
-use acapy_client::AcaPyClient;
-use quantumzero_rust_sdk::CryptoCore;
+use acapy_client::{AcaPyClient, CredentialAttribute};
 
 #[derive(Clone)]
 struct AppState {
@@ -150,9 +154,32 @@ struct CreateCredDefRequestForm {
 }
 
 #[derive(Deserialize)]
-struct CreateIssuanceRequestForm {
+struct CreateMobileInvitationRequest {
+    label: Option<String>,
+    channel: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct WalletIssuanceRequestForm {
+    connection_id: String,
     cred_def_id: String,
     credential_values: String, // JSON string
+    channel: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ConnectionLookupQuery {
+    invitation_id: String,
+}
+
+#[derive(Deserialize)]
+struct MobileConnectionsQuery {
+    invitation_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct QrQuery {
+    data: String,
 }
 
 fn default_endorser_did() -> String {
@@ -161,6 +188,162 @@ fn default_endorser_did() -> String {
 
 fn default_endorser_name() -> String {
     std::env::var("QZ_ENDORSER_ALIAS").unwrap_or_else(|_| "QZ-Endorser".to_string())
+}
+
+fn public_agent_base_url() -> Option<String> {
+    std::env::var("QZ_PUBLIC_AGENT_URL")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn mobile_app_scheme() -> String {
+    std::env::var("QZ_MOBILE_APP_SCHEME").unwrap_or_else(|_| "quantumzero".to_string())
+}
+
+fn extract_oob_param(invitation_url: Option<&str>) -> Option<String> {
+    let url = invitation_url?;
+    let parsed = Url::parse(url).ok()?;
+    parsed
+        .query_pairs()
+        .find_map(|(key, value)| {
+            if key == "oob" || key == "oobid" {
+                Some(value.to_string())
+            } else {
+                None
+            }
+        })
+}
+
+fn encode_invitation_oob(invitation: &serde_json::Value) -> Option<String> {
+    let payload = serde_json::to_vec(invitation).ok()?;
+    Some(URL_SAFE_NO_PAD.encode(payload))
+}
+
+fn build_public_invitation_url(oob: &str) -> Option<String> {
+    let base = public_agent_base_url()?;
+    build_public_invitation_url_with_base(oob, &base)
+}
+
+fn build_public_invitation_url_with_base(oob: &str, base: &str) -> Option<String> {
+    let mut url = Url::parse(base).ok()?;
+    url.set_query(Some(&format!("oob={}", oob)));
+    Some(url.to_string())
+}
+
+fn derive_public_agent_url(req: &HttpRequest) -> Option<String> {
+    if let Some(env) = public_agent_base_url() {
+        let lowered = env.to_lowercase();
+        if !lowered.contains("issuer-acapy")
+            && !lowered.contains("localhost")
+            && !lowered.contains("127.0.0.1")
+        {
+            return Some(env);
+        }
+    }
+
+    let host_header = req
+        .headers()
+        .get("x-forwarded-host")
+        .or_else(|| req.headers().get("host"))
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+
+    let hostname = if host_header.starts_with('[') {
+        host_header
+            .split(']')
+            .next()
+            .map(|value| value.trim_start_matches('['))
+            .filter(|value| !value.is_empty())?
+    } else {
+        host_header.split(':').next().unwrap_or(host_header)
+    };
+
+    let lowered_host = hostname.to_lowercase();
+    if lowered_host == "localhost" || lowered_host == "127.0.0.1" {
+        return None;
+    }
+
+    let connection_info = req.connection_info();
+    let scheme = connection_info.scheme();
+    Some(format!("{}://{}:8002", scheme, hostname))
+}
+
+fn build_app_invitation_url(oob: &str) -> Option<String> {
+    let scheme = mobile_app_scheme();
+    let mut url = Url::parse(&format!("{}://invite", scheme)).ok()?;
+    url.set_query(Some(&format!("oob={}", oob)));
+    Some(url.to_string())
+}
+
+fn rewrite_invitation_endpoint(
+    invitation: &serde_json::Value,
+    public_endpoint: &str,
+) -> serde_json::Value {
+    let mut updated = invitation.clone();
+    if let Some(services) = updated.get_mut("services").and_then(|v| v.as_array_mut()) {
+        for service in services.iter_mut() {
+            if let Some(obj) = service.as_object_mut() {
+                if obj.contains_key("serviceEndpoint") {
+                    obj.insert(
+                        "serviceEndpoint".to_string(),
+                        serde_json::Value::String(public_endpoint.to_string()),
+                    );
+                }
+            }
+        }
+    }
+    updated
+}
+
+fn get_signing_keys(info: &IssuerInfo) -> Result<(ed25519_dalek::SigningKey, ed25519_dalek::VerifyingKey), String> {
+    let signing_key_hex = info
+        .signing_key_hex
+        .as_ref()
+        .ok_or_else(|| "Signing key not available. Create a DID first.".to_string())?;
+
+    let signing_key_bytes = hex::decode(signing_key_hex)
+        .map_err(|_| "Failed to decode signing key".to_string())?;
+
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(
+        &signing_key_bytes
+            .try_into()
+            .map_err(|_| "Invalid key length".to_string())?,
+    );
+    let verifying_key = signing_key.verifying_key();
+    Ok((signing_key, verifying_key))
+}
+
+async fn submit_wallet_telemetry(
+    state: &AppState,
+    event: WalletTelemetryRequest,
+) {
+    let info = state.issuer_info.lock().unwrap();
+    let keys = get_signing_keys(&info);
+    let issuer_did = info.did.clone();
+    drop(info);
+
+    let (signing_key, verifying_key) = match keys {
+        Ok(keys) => keys,
+        Err(err) => {
+            tracing::warn!("Skipping telemetry (missing signing keys): {}", err);
+            return;
+        }
+    };
+
+    if issuer_did.is_none() {
+        tracing::warn!("Skipping telemetry (missing issuer DID)");
+        return;
+    }
+
+    if let Err(err) = state
+        .api_client
+        .submit_wallet_telemetry(&event, &signing_key, &verifying_key)
+        .await
+    {
+        tracing::warn!("Failed to submit wallet telemetry: {}", err);
+    }
 }
 
 async fn ensure_acapy_configured(
@@ -1134,15 +1317,195 @@ async fn create_cred_def(
     }
 }
 
-async fn create_issuance(
+async fn create_mobile_invitation(
     state: web::Data<AppState>,
-    form: web::Json<CreateIssuanceRequestForm>,
+    req: HttpRequest,
+    form: Option<web::Json<CreateMobileInvitationRequest>>,
 ) -> impl Responder {
     let info = state.issuer_info.lock().unwrap();
+    let issuer_did = match info.did.clone() {
+        Some(did) => did,
+        None => {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "success": false,
+                "error": "DID not created yet. Create a DID first."
+            }));
+        }
+    };
+    let alias = info.alias.clone().unwrap_or_else(|| "QZ-Issuer".to_string());
+    drop(info);
 
-    let (did, signing_key_hex) = match (&info.did, &info.signing_key_hex) {
-        (Some(d), Some(sk)) => (d.clone(), sk.clone()),
-        _ => {
+    if let Err(error) = ensure_acapy_configured(state.get_ref(), None, None).await {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "success": false,
+            "error": error
+        }));
+    }
+
+    let label = form
+        .as_ref()
+        .and_then(|data| data.label.clone())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(alias);
+    let channel = form
+        .as_ref()
+        .and_then(|data| data.channel.clone())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "qr".to_string());
+
+    let invitation_result = state.acapy_client.create_oob_invitation(Some(&label)).await;
+    match invitation_result {
+        Ok(invitation) => {
+            submit_wallet_telemetry(
+                state.get_ref(),
+                WalletTelemetryRequest {
+                    issuer_did,
+                    event_type: "wallet.invitation.created".to_string(),
+                    status: "success".to_string(),
+                    channel: Some(channel),
+                    schema_id: None,
+                    cred_def_id: None,
+                    error_category: None,
+                },
+            )
+            .await;
+
+            let public_endpoint = derive_public_agent_url(&req);
+            let invitation_payload = public_endpoint
+                .as_deref()
+                .map(|endpoint| rewrite_invitation_endpoint(&invitation.invitation, endpoint))
+                .unwrap_or_else(|| invitation.invitation.clone());
+            let rewritten_oob = encode_invitation_oob(&invitation_payload)
+                .or_else(|| extract_oob_param(invitation.invitation_url.as_deref()));
+            let public_invitation_url = rewritten_oob
+                .as_deref()
+                .and_then(|oob| public_endpoint.as_deref().and_then(|base| build_public_invitation_url_with_base(oob, base)))
+                .or_else(|| invitation.invitation_url.clone());
+            let app_invitation_url = rewritten_oob
+                .as_deref()
+                .and_then(build_app_invitation_url);
+
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": true,
+                "invitation": invitation_payload,
+                "invitation_url": public_invitation_url,
+                "app_invitation_url": app_invitation_url,
+                "invitation_id": invitation.invi_msg_id,
+                "oob_id": invitation.oob_id
+            }))
+        }
+        Err(err) => {
+            submit_wallet_telemetry(
+                state.get_ref(),
+                WalletTelemetryRequest {
+                    issuer_did,
+                    event_type: "wallet.invitation.created".to_string(),
+                    status: "failed".to_string(),
+                    channel: Some(channel),
+                    schema_id: None,
+                    cred_def_id: None,
+                    error_category: Some("acapy_invitation_failed".to_string()),
+                },
+            )
+            .await;
+
+            HttpResponse::InternalServerError().json(serde_json::json!({
+                "success": false,
+                "error": format!("Failed to create invitation: {}", err)
+            }))
+        }
+    }
+}
+
+async fn get_mobile_connection(
+    state: web::Data<AppState>,
+    query: web::Query<ConnectionLookupQuery>,
+) -> impl Responder {
+    let invitation_id = query.invitation_id.trim();
+    if invitation_id.is_empty() {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "success": false,
+            "error": "Invitation id is required"
+        }));
+    }
+
+    match state
+        .acapy_client
+        .get_connection_by_invitation_id(invitation_id)
+        .await
+    {
+        Ok(Some(connection)) => {
+            if connection.state.as_deref() == Some("active") {
+                if let Some(issuer_did) = state.issuer_info.lock().unwrap().did.clone() {
+                    submit_wallet_telemetry(
+                        state.get_ref(),
+                        WalletTelemetryRequest {
+                            issuer_did,
+                            event_type: "wallet.connection.active".to_string(),
+                            status: "success".to_string(),
+                            channel: None,
+                            schema_id: None,
+                            cred_def_id: None,
+                            error_category: None,
+                        },
+                    )
+                    .await;
+                }
+            }
+
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": true,
+                "connection_id": connection.connection_id,
+                "state": connection.state
+            }))
+        }
+        Ok(None) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "state": "pending"
+        })),
+        Err(err) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "success": false,
+            "error": format!("Failed to query connection: {}", err)
+        })),
+    }
+}
+
+async fn list_mobile_connections(
+    state: web::Data<AppState>,
+    query: web::Query<MobileConnectionsQuery>,
+) -> impl Responder {
+    let invitation_id = query
+        .invitation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    match state.acapy_client.list_connections(invitation_id).await {
+        Ok(connections) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "connections": connections.iter().map(|rec| {
+                serde_json::json!({
+                    "connection_id": rec.connection_id,
+                    "state": rec.state,
+                    "their_label": rec.their_label
+                })
+            }).collect::<Vec<_>>()
+        })),
+        Err(err) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "success": false,
+            "error": format!("Failed to list connections: {}", err)
+        })),
+    }
+}
+
+async fn issue_wallet_credential(
+    state: web::Data<AppState>,
+    form: web::Json<WalletIssuanceRequestForm>,
+) -> impl Responder {
+    let info = state.issuer_info.lock().unwrap();
+    let issuer_did = match info.did.clone() {
+        Some(did) => did,
+        None => {
             return HttpResponse::BadRequest().json(serde_json::json!({
                 "success": false,
                 "error": "DID not created yet. Create a DID first."
@@ -1151,9 +1514,14 @@ async fn create_issuance(
     };
     drop(info);
 
-    // Parse credential values
-    let credential_values: serde_json::Value = match serde_json::from_str(&form.credential_values)
-    {
+    if let Err(error) = ensure_acapy_configured(state.get_ref(), None, None).await {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "success": false,
+            "error": error
+        }));
+    }
+
+    let credential_values: serde_json::Value = match serde_json::from_str(&form.credential_values) {
         Ok(v) => v,
         Err(e) => {
             return HttpResponse::BadRequest().json(serde_json::json!({
@@ -1163,53 +1531,206 @@ async fn create_issuance(
         }
     };
 
-    // Reconstruct key pair
-    let signing_key_bytes = hex::decode(&signing_key_hex).unwrap();
-    let signing_key =
-        ed25519_dalek::SigningKey::from_bytes(&signing_key_bytes.try_into().unwrap());
-    let verifying_key = signing_key.verifying_key();
-
-    let request = IssuanceRequest {
-        issuer_did: did.clone(),
-        cred_def_id: form.cred_def_id.clone(),
-        credential_values,
-        holder_did: None,
+    let map = match credential_values.as_object() {
+        Some(map) => map,
+        None => {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "success": false,
+                "error": "Credential values must be a JSON object of attribute name/value pairs"
+            }));
+        }
     };
 
-    match state
-        .api_client
-        .submit_issuance_request(&request, &signing_key, &verifying_key)
-        .await
-    {
-        Ok(result) => {
-            let mut info = state.issuer_info.lock().unwrap();
-            info.issuance_requests.push(IssuanceInfo {
-                id: result.request_id,
-                cred_def_id: form.cred_def_id.clone(),
-                status: result.status.clone(),
-                submitted_at: chrono::Utc::now().to_rfc3339(),
+    let (expected_attrs, schema_label) = {
+        let info = state.issuer_info.lock().unwrap();
+        let cred_def = info.cred_defs.iter().find(|def| def.cred_def_id == form.cred_def_id);
+        let schema = cred_def.and_then(|def| info.schemas.iter().find(|schema| schema.schema_id == def.schema_id));
+        let label = schema
+            .map(|schema| format!("{} v{}", schema.name, schema.version))
+            .unwrap_or_else(|| "Unknown Schema".to_string());
+        let attrs = schema.map(|schema| schema.attributes.clone()).unwrap_or_default();
+        (attrs, label)
+    };
+
+    if !expected_attrs.is_empty() {
+        let expected_set: std::collections::BTreeSet<String> = expected_attrs.iter().cloned().collect();
+        let provided_set: std::collections::BTreeSet<String> = map.keys().cloned().collect();
+
+        if expected_set != provided_set {
+            let missing: Vec<String> = expected_set.difference(&provided_set).cloned().collect();
+            let extra: Vec<String> = provided_set.difference(&expected_set).cloned().collect();
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "success": false,
+                "error": format!("Credential values must match schema attributes for {}.", schema_label),
+                "expected_attributes": expected_attrs,
+                "provided_attributes": map.keys().cloned().collect::<Vec<_>>(),
+                "missing_attributes": missing,
+                "extra_attributes": extra,
+            }));
+        }
+    }
+
+    let mut attributes = Vec::new();
+    if !expected_attrs.is_empty() {
+        for name in expected_attrs {
+            if let Some(value) = map.get(&name) {
+                let rendered = match value {
+                    serde_json::Value::String(val) => val.clone(),
+                    _ => value.to_string(),
+                };
+                attributes.push(CredentialAttribute {
+                    name,
+                    value: rendered,
+                });
+            }
+        }
+    } else {
+        for (name, value) in map {
+            let rendered = match value {
+                serde_json::Value::String(val) => val.clone(),
+                _ => value.to_string(),
+            };
+            attributes.push(CredentialAttribute {
+                name: name.clone(),
+                value: rendered,
+            });
+        }
+    }
+
+    let channel = form
+        .channel
+        .clone()
+        .filter(|value| !value.trim().is_empty());
+
+    let offer_result = state
+        .acapy_client
+        .send_credential_offer(&form.connection_id, &form.cred_def_id, attributes)
+        .await;
+
+    match offer_result {
+        Ok(response) => {
+            let (schema_id, issuer_alias) = {
+                let info = state.issuer_info.lock().unwrap();
+                let schema_id = info
+                    .cred_defs
+                    .iter()
+                    .find(|def| def.cred_def_id == form.cred_def_id)
+                    .map(|def| def.schema_id.clone());
+                let alias = info.alias.clone();
+                (schema_id, alias)
+            };
+
+            let credential_payload = serde_json::json!({
+                "id": format!("urn:uuid:{}", Uuid::new_v4()),
+                "schema_id": schema_id,
+                "cred_def_id": form.cred_def_id.clone(),
+                "issuer": issuer_alias.unwrap_or_else(|| "Issuer".to_string()),
+                "issuer_did": issuer_did,
+                "attributes": credential_values,
             });
 
-            tracing::info!(
-                "Issuance request submitted: request_id={}",
-                result.request_id
-            );
+            let attachment_json = serde_json::to_string(&credential_payload)
+                .unwrap_or_else(|_| "{}".to_string());
+            let attachment_b64 = URL_SAFE_NO_PAD.encode(attachment_json);
+
+            let issue_message = serde_json::json!({
+                "@id": Uuid::new_v4().to_string(),
+                "@type": "https://didcomm.org/issue-credential/2.0/issue-credential",
+                "~thread": {
+                    "thid": response.cred_ex_id.clone().unwrap_or_else(|| Uuid::new_v4().to_string())
+                },
+                "credentials~attach": [
+                    {
+                        "@id": "cred-0",
+                        "mime-type": "application/json",
+                        "data": {
+                            "base64": attachment_b64
+                        }
+                    }
+                ]
+            });
+
+            if let Err(err) = state
+                .acapy_client
+                .send_connection_message(&form.connection_id, &issue_message)
+                .await
+            {
+                tracing::warn!("Failed to send direct issue message: {}", err);
+            }
+
+            submit_wallet_telemetry(
+                state.get_ref(),
+                WalletTelemetryRequest {
+                    issuer_did,
+                    event_type: "wallet.credential.offer.sent".to_string(),
+                    status: "success".to_string(),
+                    channel,
+                    schema_id: None,
+                    cred_def_id: Some(form.cred_def_id.clone()),
+                    error_category: None,
+                },
+            )
+            .await;
 
             HttpResponse::Ok().json(serde_json::json!({
                 "success": true,
-                "request_id": result.request_id,
-                "status": result.status,
-                "message": result.message
+                "cred_ex_id": response.cred_ex_id,
+                "state": response.state,
+                "role": response.role
             }))
         }
-        Err(e) => {
-            tracing::error!("Failed to create issuance request: {}", e);
+        Err(err) => {
+            submit_wallet_telemetry(
+                state.get_ref(),
+                WalletTelemetryRequest {
+                    issuer_did,
+                    event_type: "wallet.credential.offer.sent".to_string(),
+                    status: "failed".to_string(),
+                    channel,
+                    schema_id: None,
+                    cred_def_id: Some(form.cred_def_id.clone()),
+                    error_category: Some("acapy_offer_failed".to_string()),
+                },
+            )
+            .await;
+
             HttpResponse::InternalServerError().json(serde_json::json!({
                 "success": false,
-                "error": format!("Failed to create issuance request: {}", e)
+                "error": format!("Failed to send credential offer: {}", err)
             }))
         }
     }
+}
+
+async fn qr_svg(query: web::Query<QrQuery>) -> impl Responder {
+    let data = query.data.trim();
+    if data.is_empty() || data.len() > 2048 {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "success": false,
+            "error": "QR data is required and must be <= 2048 characters"
+        }));
+    }
+
+    let code = match QrCode::new(data.as_bytes()) {
+        Ok(code) => code,
+        Err(_) => {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "success": false,
+                "error": "Unable to generate QR code"
+            }));
+        }
+    };
+
+    let svg = code
+        .render::<svg::Color>()
+        .min_dimensions(280, 280)
+        .dark_color(svg::Color("#111111"))
+        .light_color(svg::Color("#ffffff"))
+        .build();
+
+    HttpResponse::Ok()
+        .content_type("image/svg+xml")
+        .body(svg)
 }
 
 #[actix_web::main]
@@ -1264,7 +1785,11 @@ async fn main() -> std::io::Result<()> {
             .route("/api/connect-endorser", web::post().to(connect_endorser))
             .route("/api/create-schema", web::post().to(create_schema))
             .route("/api/create-cred-def", web::post().to(create_cred_def))
-            .route("/api/create-issuance", web::post().to(create_issuance))
+                .route("/api/mobile-invitation", web::post().to(create_mobile_invitation))
+                .route("/api/mobile-connection", web::get().to(get_mobile_connection))
+                .route("/api/mobile-connections", web::get().to(list_mobile_connections))
+                .route("/api/issue-wallet-credential", web::post().to(issue_wallet_credential))
+                .route("/api/qr", web::get().to(qr_svg))
     })
     .bind(bind_address)?
     .run()

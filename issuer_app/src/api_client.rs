@@ -71,6 +71,21 @@ pub struct IssuanceRequest {
     pub holder_did: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WalletTelemetryRequest {
+    pub issuer_did: String,
+    pub event_type: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schema_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cred_def_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_category: Option<String>,
+}
+
 impl ApiClient {
     pub fn new(base_url: String, ledger_url: String) -> Self {
         Self {
@@ -276,6 +291,34 @@ impl ApiClient {
         api_response
             .data
             .ok_or_else(|| anyhow::anyhow!("No data in response"))
+    }
+
+    /// Submit anonymous wallet telemetry event
+    pub async fn submit_wallet_telemetry(
+        &self,
+        request: &WalletTelemetryRequest,
+        signing_key: &ed25519_dalek::SigningKey,
+        verifying_key: &ed25519_dalek::VerifyingKey,
+    ) -> Result<()> {
+        let body = serde_json::to_string(&request)?;
+        let headers = self.create_signed_headers(signing_key, verifying_key, &body)?;
+
+        let url = format!("{}/api/v1/telemetry/wallet-events", self.base_url);
+        let response = self
+            .client
+            .post(&url)
+            .headers(headers)
+            .body(body)
+            .send()
+            .await
+            .context("Failed to send wallet telemetry")?;
+
+        if !response.status().is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            anyhow::bail!("API error: {}", error_text);
+        }
+
+        Ok(())
     }
 
     /// Sync issuer data from the server (read-only)

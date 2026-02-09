@@ -20,6 +20,19 @@ if ! docker info > /dev/null 2>&1; then
 fi
 echo -e "${GREEN}✓ Docker is running${NC}"
 
+# Detect host IP for public agent URL (used in mobile invitations)
+if [ -z "${QZ_PUBLIC_AGENT_URL:-}" ]; then
+    HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if ($i=="src") {print $(i+1); exit}}')
+    if [ -n "$HOST_IP" ]; then
+        export QZ_PUBLIC_AGENT_URL="http://${HOST_IP}:8002"
+        echo -e "${GREEN}✓ Using host IP for QZ_PUBLIC_AGENT_URL: ${QZ_PUBLIC_AGENT_URL}${NC}"
+    else
+        echo -e "${YELLOW}⚠ Unable to detect host IP. Set QZ_PUBLIC_AGENT_URL manually if mobile cannot connect.${NC}"
+    fi
+else
+    echo -e "${GREEN}✓ Using QZ_PUBLIC_AGENT_URL from environment: ${QZ_PUBLIC_AGENT_URL}${NC}"
+fi
+
 # Check if quantumzero-network exists
 if ! docker network inspect quantumzero-network > /dev/null 2>&1; then
     echo -e "${YELLOW}⚠ Network 'quantumzero-network' not found.${NC}"

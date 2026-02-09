@@ -87,6 +87,28 @@
             color: #333;
         }
 
+        .connection-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+
+        .connection-item {
+            padding: 6px 0;
+            border-bottom: 1px solid #eaeaea;
+            font-size: 12px;
+            color: #333;
+        }
+
+        .connection-item:last-child {
+            border-bottom: none;
+        }
+
+        .connection-item small {
+            display: block;
+            color: #666;
+        }
+
         .form-group {
             margin-bottom: 15px;
         }
@@ -220,6 +242,35 @@
             background: #f8d7da;
             color: #721c24;
             border: 1px solid #f5c6cb;
+        }
+
+        .qr-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .qr-container img {
+            width: 280px;
+            height: 280px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            background: #fff;
+        }
+
+        .link-box {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            word-break: break-all;
+            background: #ffffff;
+            padding: 8px;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
         }
 
         .empty-state {
@@ -360,21 +411,76 @@
                 <div id="cred-def-message"></div>
             </div>
 
-            <!-- Issue Credential Card -->
+            <!-- Mobile Wallet Issuance Card -->
             <div class="card">
-                <h2>🎫 Issue Credential</h2>
-                <form id="create-issuance-form">
+                <h2>📱 Mobile Wallet Issuance (QR or Link)</h2>
+                <p style="margin-bottom: 12px; color: #666; font-size: 14px;">
+                    Generate a wallet invitation (QR or link), wait for connection, then send a credential offer.
+                </p>
+
+                <form id="mobile-invitation-form">
                     <div class="form-group">
-                        <label for="issuance-cred-def-id">Credential Definition ID</label>
-                        <input type="text" id="issuance-cred-def-id" name="cred_def_id" placeholder="did:sov:...:3:CL:...:tag" required>
+                        <label for="mobile-label">Invitation Label (optional)</label>
+                        <input type="text" id="mobile-label" name="label" placeholder="QZ Issuer">
                     </div>
                     <div class="form-group">
-                        <label for="issuance-values">Credential Values (JSON)</label>
-                        <textarea id="issuance-values" name="credential_values" required>{"username": "user123", "email": "user@example.com", "role": "student"}</textarea>
+                        <label for="mobile-channel">Delivery Channel</label>
+                        <select id="mobile-channel" name="channel" style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 5px; font-size: 14px;">
+                            <option value="qr">QR</option>
+                            <option value="link">Link</option>
+                        </select>
                     </div>
-                    <button type="submit">Submit Issuance Request</button>
+                    <button type="submit">Create Wallet Invitation</button>
                 </form>
-                <div id="issuance-message"></div>
+
+                <div id="mobile-invitation-message"></div>
+                <div id="mobile-invitation-output" style="display:none; margin-top: 12px;">
+                    <div class="info-box">
+                        <strong>Invitation ID</strong>
+                        <span id="mobile-invitation-id">N/A</span>
+                    </div>
+                    <div class="qr-container" id="mobile-qr-container">
+                        <img id="mobile-qr" alt="Wallet Invitation QR" />
+                        <div class="link-box" id="mobile-app-invitation-url"></div>
+                        <div class="link-box" id="mobile-invitation-url"></div>
+                        <a id="mobile-invitation-link" href="#" target="_blank" rel="noopener">Open in Wallet</a>
+                    </div>
+                </div>
+
+                <div style="margin-top: 16px;">
+                    <button id="mobile-connection-btn" type="button" style="background: #0d6efd;">Check Wallet Connection</button>
+                    <div id="mobile-connection-message"></div>
+                    <div class="info-box" style="margin-top: 10px;">
+                        <strong>Connection Status</strong>
+                        <span id="mobile-connection-status">pending</span>
+                        <small id="mobile-connection-id" style="display:block; margin-top: 4px; color:#555;"></small>
+                    </div>
+                    <div class="info-box" style="margin-top: 10px;">
+                        <strong>Connection Attempts</strong>
+                        <ul id="mobile-connection-list" class="connection-list"></ul>
+                    </div>
+                </div>
+
+                <form id="mobile-issuance-form" style="margin-top: 16px;">
+                    <div class="form-group">
+                        <label for="mobile-connection-id-input">Connection ID</label>
+                        <input type="text" id="mobile-connection-id-input" name="connection_id" placeholder="ACA-Py connection id" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="mobile-cred-def-id">Credential Definition</label>
+                        <select id="mobile-cred-def-id" name="cred_def_id" required style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 5px; font-size: 14px;">
+                            <option value="">Select credential definition...</option>
+                        </select>
+                        <small id="mobile-cred-def-details" style="display:block; margin-top: 6px; color:#666;"></small>
+                    </div>
+                    <div class="form-group">
+                        <label for="mobile-values">Credential Values (JSON)</label>
+                        <textarea id="mobile-values" name="credential_values" required>{"employee_id": "E-10001", "given_name": "Jane", "family_name": "Doe", "department": "Security", "badge_level": "5", "expires_on": "2027-12-31"}</textarea>
+                    </div>
+                    <input type="hidden" id="mobile-channel-hidden" name="channel" value="qr">
+                    <button type="submit" style="background: #28a745;">Send Credential Offer</button>
+                </form>
+                <div id="mobile-issuance-message"></div>
             </div>
 
             <!-- Schemas List -->
@@ -393,13 +499,7 @@
                 </div>
             </div>
 
-            <!-- Issuance Requests List -->
-            <div class="card">
-                <h2>📤 Issuance Requests</h2>
-                <div id="issuance-list">
-                    <div class="empty-state">No issuance requests yet</div>
-                </div>
-            </div>
+            <!-- Issuance Requests List removed: QR/Link issuance is the single path -->
         </div>
     </div>
 
@@ -413,8 +513,8 @@
                 
                 updateIssuerInfo(data);
                 updateSchemasList(data.schemas);
-                updateCredDefsList(data.cred_defs);
-                updateIssuanceList(data.issuance_requests);
+                updateCredDefsList(data.cred_defs, data.schemas);
+                updateMobileCredDefOptions(data.cred_defs, data.schemas);
             } catch (error) {
                 console.error('Failed to load issuer info:', error);
             }
@@ -478,7 +578,7 @@
             `).join('');
         }
 
-        function updateCredDefsList(credDefs) {
+        function updateCredDefsList(credDefs, schemas = []) {
             const container = document.getElementById('cred-defs-list');
             
             if (!credDefs || credDefs.length === 0) {
@@ -486,7 +586,14 @@
                 return;
             }
 
-            container.innerHTML = credDefs.map(credDef => `
+            const schemaLookup = new Map(
+                (schemas || []).map(schema => [schema.schema_id, schema])
+            );
+
+            container.innerHTML = credDefs.map(credDef => {
+                const schema = schemaLookup.get(credDef.schema_id);
+                const schemaLabel = schema ? `${schema.name} v${schema.version}` : 'Unknown Schema';
+                return `
                 <div class="list-item">
                     <div class="list-item-header">
                         <span class="list-item-title">Tag: ${credDef.tag}</span>
@@ -494,32 +601,71 @@
                     </div>
                     <div class="list-item-detail">${credDef.cred_def_id}</div>
                     <div style="font-size: 12px; color: #666; margin-top: 5px;">
-                        Schema: ${credDef.schema_id}
+                        Schema: ${schemaLabel}
                     </div>
                 </div>
-            `).join('');
+            `;
+            }).join('');
         }
 
-        function updateIssuanceList(issuances) {
-            const container = document.getElementById('issuance-list');
-            
-            if (!issuances || issuances.length === 0) {
-                container.innerHTML = '<div class="empty-state">No issuance requests yet</div>';
-                return;
-            }
+        function updateMobileCredDefOptions(credDefs = [], schemas = []) {
+            const select = document.getElementById('mobile-cred-def-id');
+            const details = document.getElementById('mobile-cred-def-details');
+            if (!select) return;
 
-            container.innerHTML = issuances.map(issuance => `
-                <div class="list-item">
-                    <div class="list-item-header">
-                        <span class="list-item-title">Request ${issuance.id.substring(0, 8)}...</span>
-                        <span class="status ${issuance.status}">${issuance.status}</span>
-                    </div>
-                    <div class="list-item-detail">${issuance.cred_def_id}</div>
-                    <div style="font-size: 12px; color: #666; margin-top: 5px;">
-                        Submitted: ${new Date(issuance.submitted_at).toLocaleString()}
-                    </div>
-                </div>
-            `).join('');
+            const previousValue = select.value;
+
+            const schemaLookup = new Map(
+                (schemas || []).map(schema => [schema.schema_id, schema])
+            );
+
+            select.innerHTML = '<option value="">Select credential definition...</option>' +
+                (credDefs || []).map(credDef => {
+                    const schema = schemaLookup.get(credDef.schema_id);
+                    const schemaLabel = schema ? `${schema.name} v${schema.version}` : 'Unknown Schema';
+                    const attrsPayload = encodeURIComponent(JSON.stringify(schema?.attributes || []));
+                    return `<option value="${credDef.cred_def_id}" data-schema="${schemaLabel}" data-attrs="${attrsPayload}">${schemaLabel} — ${credDef.tag}</option>`;
+                }).join('');
+
+            const buildTemplate = (attrs) => {
+                const obj = {};
+                (attrs || []).forEach((attr) => {
+                    if (attr) obj[attr] = '';
+                });
+                return JSON.stringify(obj, null, 2);
+            };
+
+            const updateDetails = () => {
+                const selected = select.options[select.selectedIndex];
+                if (!selected || !selected.value) {
+                    if (details) details.textContent = '';
+                    return;
+                }
+                const schemaLabel = selected.getAttribute('data-schema') || 'Unknown Schema';
+                if (details) details.textContent = `Schema: ${schemaLabel}`;
+
+                const attrsRaw = selected.getAttribute('data-attrs') || '[]';
+                let attrs = [];
+                try {
+                    attrs = JSON.parse(decodeURIComponent(attrsRaw));
+                } catch (_) {
+                    attrs = [];
+                }
+                const valuesField = document.getElementById('mobile-values');
+                if (valuesField && attrs.length > 0) {
+                    const templateKey = selected.value;
+                    if (valuesField.dataset.templateFor !== templateKey) {
+                        valuesField.value = buildTemplate(attrs);
+                        valuesField.dataset.templateFor = templateKey;
+                    }
+                }
+            };
+
+            if (previousValue) {
+                select.value = previousValue;
+            }
+            select.onchange = updateDetails;
+            updateDetails();
         }
 
         function showMessage(elementId, message, isError = false) {
@@ -703,27 +849,168 @@
             }
         });
 
-        document.getElementById('create-issuance-form').addEventListener('submit', async (e) => {
+        let currentInvitationId = null;
+        let mobileConnectionPoll = null;
+
+        async function refreshMobileConnections() {
+            if (!currentInvitationId) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/mobile-connections?invitation_id=${encodeURIComponent(currentInvitationId)}`);
+                const result = await response.json();
+
+                if (!result.success) {
+                    return;
+                }
+
+                const list = document.getElementById('mobile-connection-list');
+                if (!list) {
+                    return;
+                }
+
+                const connections = result.connections || [];
+                list.innerHTML = '';
+
+                if (connections.length === 0) {
+                    const empty = document.createElement('li');
+                    empty.className = 'connection-item';
+                    empty.textContent = 'No connections yet';
+                    list.appendChild(empty);
+                    return;
+                }
+
+                connections.forEach((connection) => {
+                    const item = document.createElement('li');
+                    item.className = 'connection-item';
+                    const label = connection.their_label ? `${connection.their_label} · ` : '';
+                    item.textContent = `${label}${connection.state || 'unknown'}`;
+                    const meta = document.createElement('small');
+                    meta.textContent = connection.connection_id || '';
+                    item.appendChild(meta);
+                    list.appendChild(item);
+                });
+
+                const active = connections.find((connection) => connection.state === 'active');
+                const primary = active || connections[0];
+                if (primary) {
+                    document.getElementById('mobile-connection-status').textContent = primary.state || 'pending';
+                    if (primary.connection_id) {
+                        document.getElementById('mobile-connection-id').textContent = `Connection ID: ${primary.connection_id}`;
+                        document.getElementById('mobile-connection-id-input').value = primary.connection_id;
+                    }
+                }
+            } catch (_) {
+                // ignore polling errors
+            }
+        }
+
+        document.getElementById('mobile-channel').addEventListener('change', (e) => {
+            document.getElementById('mobile-channel-hidden').value = e.target.value;
+        });
+
+        document.getElementById('mobile-invitation-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             const formData = new FormData(e.target);
             const data = Object.fromEntries(formData);
 
             try {
-                const response = await fetch('/api/create-issuance', {
+                const response = await fetch('/api/mobile-invitation', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(data)
                 });
                 const result = await response.json();
-                
+
                 if (result.success) {
-                    showMessage('issuance-message', `Issuance submitted! Request ID: ${result.request_id}`);
-                    loadIssuerInfo();
+                    currentInvitationId = result.invitation_id;
+                    if (mobileConnectionPoll) {
+                        clearInterval(mobileConnectionPoll);
+                    }
+                    mobileConnectionPoll = setInterval(refreshMobileConnections, 5000);
+                    refreshMobileConnections();
+                    document.getElementById('mobile-invitation-id').textContent = result.invitation_id || 'N/A';
+                    const appInvitationUrl = result.app_invitation_url || '';
+                    const publicInvitationUrl = result.invitation_url || '';
+                    document.getElementById('mobile-app-invitation-url').textContent = appInvitationUrl || 'N/A';
+                    document.getElementById('mobile-invitation-url').textContent = publicInvitationUrl || 'N/A';
+                    document.getElementById('mobile-invitation-link').href = appInvitationUrl || publicInvitationUrl || '#';
+                    document.getElementById('mobile-qr').src = `/api/qr?data=${encodeURIComponent(appInvitationUrl || publicInvitationUrl || '')}`;
+                    const channel = document.getElementById('mobile-channel-hidden').value;
+                    const qrContainer = document.getElementById('mobile-qr-container');
+                    const invitationUrl = document.getElementById('mobile-invitation-url');
+                    const invitationAppUrl = document.getElementById('mobile-app-invitation-url');
+                    const invitationLink = document.getElementById('mobile-invitation-link');
+                    const invitationQr = document.getElementById('mobile-qr');
+                    if (qrContainer && invitationUrl && invitationAppUrl && invitationLink && invitationQr) {
+                        if (channel === 'link') {
+                            invitationQr.style.display = 'none';
+                        } else {
+                            invitationQr.style.display = 'block';
+                        }
+                        invitationAppUrl.style.display = 'block';
+                        invitationUrl.style.display = 'block';
+                        invitationLink.style.display = 'inline-block';
+                    }
+                    document.getElementById('mobile-invitation-output').style.display = 'block';
+                    document.getElementById('mobile-connection-status').textContent = 'pending';
+                    document.getElementById('mobile-connection-id').textContent = '';
+                    showMessage('mobile-invitation-message', 'Invitation created. Share QR or link with wallet.');
                 } else {
-                    showMessage('issuance-message', result.error || 'Failed to create issuance request', true);
+                    showMessage('mobile-invitation-message', result.error || 'Failed to create invitation', true);
                 }
             } catch (error) {
-                showMessage('issuance-message', 'Error: ' + error.message, true);
+                showMessage('mobile-invitation-message', 'Error: ' + error.message, true);
+            }
+        });
+
+        document.getElementById('mobile-connection-btn').addEventListener('click', async () => {
+            if (!currentInvitationId) {
+                showMessage('mobile-connection-message', 'Create an invitation first', true);
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/mobile-connection?invitation_id=${encodeURIComponent(currentInvitationId)}`);
+                const result = await response.json();
+
+                if (result.success) {
+                    document.getElementById('mobile-connection-status').textContent = result.state || 'pending';
+                    if (result.connection_id) {
+                        document.getElementById('mobile-connection-id').textContent = `Connection ID: ${result.connection_id}`;
+                        document.getElementById('mobile-connection-id-input').value = result.connection_id;
+                    }
+                    refreshMobileConnections();
+                    showMessage('mobile-connection-message', 'Connection status updated');
+                } else {
+                    showMessage('mobile-connection-message', result.error || 'Failed to check connection', true);
+                }
+            } catch (error) {
+                showMessage('mobile-connection-message', 'Error: ' + error.message, true);
+            }
+        });
+
+        document.getElementById('mobile-issuance-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData);
+
+            try {
+                const response = await fetch('/api/issue-wallet-credential', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    showMessage('mobile-issuance-message', `Offer sent. Exchange ID: ${result.cred_ex_id || 'N/A'}`);
+                } else {
+                    showMessage('mobile-issuance-message', result.error || 'Failed to send offer', true);
+                }
+            } catch (error) {
+                showMessage('mobile-issuance-message', 'Error: ' + error.message, true);
             }
         });
 

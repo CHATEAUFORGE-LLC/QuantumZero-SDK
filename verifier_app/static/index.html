@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QuantumZero Verifier</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      min-height: 100vh;
+      padding: 20px;
+      color: #1e293b;
+    }
+    .container { max-width: 1000px; margin: 0 auto; }
+    header {
+      background: white;
+      padding: 24px;
+      border-radius: 10px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+    h1 { color: #0f172a; margin-bottom: 6px; }
+    .subtitle { color: #64748b; font-size: 14px; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 20px;
+    }
+    .card {
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    .card h2 {
+      color: #0f172a;
+      margin-bottom: 12px;
+      font-size: 18px;
+      border-bottom: 1px solid #e2e8f0;
+      padding-bottom: 8px;
+    }
+    .form-group { margin-bottom: 12px; }
+    label { display: block; margin-bottom: 6px; font-size: 13px; color: #475569; }
+    input, textarea {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #cbd5f5;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+    textarea { min-height: 120px; font-family: 'Courier New', monospace; }
+    button {
+      width: 100%;
+      background: #2563eb;
+      color: white;
+      border: none;
+      padding: 12px 16px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover { background: #1d4ed8; }
+    .info-box {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+    .info-box strong { display: block; font-size: 12px; color: #64748b; margin-bottom: 4px; }
+    .info-box span { font-size: 12px; word-break: break-all; }
+    .message { margin-top: 10px; padding: 10px; border-radius: 6px; font-size: 13px; }
+    .message.success { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+    .message.error { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+    .button-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .button-row button { width: auto; flex: 1; min-width: 140px; }
+    .muted { color: #64748b; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🔍 QuantumZero Verifier</h1>
+      <p class="subtitle">Validate wallet presentations via QuantumZero Verification API</p>
+    </header>
+
+    <div class="grid">
+      <div class="card">
+        <h2>QR Intake</h2>
+        <div class="form-group">
+          <label for="qr-payload">QR Payload (paste or scan output)</label>
+          <textarea id="qr-payload" placeholder="Paste QR payload JSON here"></textarea>
+          <div class="muted">Accepts JSON with presentation + signature + verkey.</div>
+        </div>
+        <div class="form-group">
+          <label for="qr-file">QR Image (optional)</label>
+          <input type="file" id="qr-file" accept="image/*">
+        </div>
+        <div class="button-row">
+          <button type="button" id="paste-qr">Paste from Clipboard</button>
+          <button type="button" id="parse-qr" style="background:#16a34a;">Load into Form</button>
+          <button type="button" id="copy-qr" style="background:#0f172a;">Copy Code</button>
+        </div>
+        <div id="qr-message"></div>
+      </div>
+
+      <div class="card">
+        <h2>Verifier Keys</h2>
+        <form id="verifier-keys-form">
+          <div class="form-group">
+            <label for="seed">Seed (optional, 32 chars)</label>
+            <input type="text" id="seed" name="seed" placeholder="32-character seed">
+          </div>
+          <button type="submit">Generate Verifier Keys</button>
+        </form>
+        <div id="verifier-message"></div>
+        <div id="verifier-info" style="margin-top: 12px;"></div>
+      </div>
+
+      <div class="card">
+        <h2>Verify Presentation</h2>
+        <form id="verify-form">
+          <div class="form-group">
+            <label for="presentation">Presentation (JSON)</label>
+            <textarea id="presentation" name="presentation" required>{}</textarea>
+          </div>
+          <div class="form-group">
+            <label for="signature">Presentation Signature (base64)</label>
+            <input type="text" id="signature" name="signature" placeholder="base64 signature" required>
+          </div>
+          <div class="form-group">
+            <label for="verkey">Presenter Verkey (base64)</label>
+            <input type="text" id="verkey" name="verkey" placeholder="base64 verkey" required>
+          </div>
+          <div class="form-group">
+            <label for="issuer-did">Issuer DID (optional)</label>
+            <input type="text" id="issuer-did" name="issuer_did" placeholder="did:sov:...">
+          </div>
+          <div class="form-group">
+            <label for="cred-def-id">Credential Definition ID (optional)</label>
+            <input type="text" id="cred-def-id" name="cred_def_id" placeholder="did:sov:...:3:CL:...:tag">
+          </div>
+          <div class="form-group">
+            <label for="rev-reg-id">Revocation Registry ID (optional)</label>
+            <input type="text" id="rev-reg-id" name="rev_reg_id" placeholder="rev_reg_id">
+          </div>
+          <div class="form-group">
+            <label for="cred-rev-id">Credential Revocation ID (optional)</label>
+            <input type="text" id="cred-rev-id" name="credential_revocation_id" placeholder="revocation id">
+          </div>
+          <button type="submit" style="background:#16a34a;">Verify Presentation</button>
+        </form>
+        <div id="verify-message"></div>
+        <div class="button-row" style="margin-top: 10px;">
+          <button type="button" id="copy-verify" style="background:#0f172a;">Copy Verification Result</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function showMessage(elementId, message, isError = false) {
+      const container = document.getElementById(elementId);
+      container.innerHTML = `<div class="message ${isError ? 'error' : 'success'}">${message}</div>`;
+      setTimeout(() => { container.innerHTML = ''; }, 6000);
+    }
+
+    let lastVerificationResult = null;
+
+    function setFieldValue(id, value) {
+      const field = document.getElementById(id);
+      if (!field) return;
+      field.value = value ?? '';
+    }
+
+    function parseQrPayload(raw) {
+      const trimmed = (raw || '').trim();
+      if (!trimmed) {
+        throw new Error('QR payload is empty');
+      }
+
+      let data = null;
+      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+        data = JSON.parse(trimmed);
+      } else {
+        // Attempt base64 decode -> JSON
+        try {
+          const decoded = atob(trimmed);
+          data = JSON.parse(decoded);
+        } catch (error) {
+          throw new Error('QR payload is not valid JSON or base64 JSON');
+        }
+      }
+
+      const presentation = data.presentation ?? data.presentation_request ?? data.presentationRequest;
+      if (presentation) {
+        setFieldValue('presentation',
+          typeof presentation === 'string'
+            ? presentation
+            : JSON.stringify(presentation, null, 2)
+        );
+      }
+      if (data.signature) setFieldValue('signature', data.signature);
+      if (data.verkey) setFieldValue('verkey', data.verkey);
+      if (data.issuer_did) setFieldValue('issuer-did', data.issuer_did);
+      if (data.cred_def_id) setFieldValue('cred-def-id', data.cred_def_id);
+      if (data.rev_reg_id) setFieldValue('rev-reg-id', data.rev_reg_id);
+      if (data.credential_revocation_id) setFieldValue('cred-rev-id', data.credential_revocation_id);
+    }
+
+    async function copyText(text, successMessageId) {
+      try {
+        await navigator.clipboard.writeText(text);
+        if (successMessageId) {
+          showMessage(successMessageId, 'Copied to clipboard');
+        }
+      } catch (error) {
+        if (successMessageId) {
+          showMessage(successMessageId, 'Failed to copy', true);
+        }
+      }
+    }
+
+    async function loadVerifierInfo() {
+      try {
+        const response = await fetch('/api/verifier-info');
+        const data = await response.json();
+        const container = document.getElementById('verifier-info');
+
+        if (!data.verifier_id) {
+          container.innerHTML = '<div class="info-box">No verifier keys created yet.</div>';
+          return;
+        }
+
+        container.innerHTML = `
+          <div class="info-box">
+            <strong>Verifier ID</strong>
+            <span>${data.verifier_id}</span>
+          </div>
+          <div class="info-box">
+            <strong>Verifier Verkey (base64)</strong>
+            <span>${data.verkey_base64 || 'N/A'}</span>
+          </div>
+        `;
+      } catch (error) {
+        console.error('Failed to load verifier info', error);
+      }
+    }
+
+    document.getElementById('verifier-keys-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const data = Object.fromEntries(formData);
+
+      if (data.seed && data.seed.trim().length === 0) {
+        delete data.seed;
+      }
+
+      try {
+        const response = await fetch('/api/create-verifier-keys', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+        const result = await response.json();
+
+        if (result.success) {
+          showMessage('verifier-message', `Verifier keys created. ID: ${result.verifier_id}`);
+          loadVerifierInfo();
+        } else {
+          showMessage('verifier-message', result.error || 'Failed to create verifier keys', true);
+        }
+      } catch (error) {
+        showMessage('verifier-message', 'Error: ' + error.message, true);
+      }
+    });
+
+    document.getElementById('verify-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const data = Object.fromEntries(formData);
+
+      try {
+        const response = await fetch('/api/verify-presentation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+        const result = await response.json();
+
+        if (result.success) {
+          lastVerificationResult = result;
+          showMessage('verify-message', `Verified: ${result.verified} (${result.status})`);
+        } else {
+          showMessage('verify-message', result.error || 'Verification failed', true);
+        }
+      } catch (error) {
+        showMessage('verify-message', 'Error: ' + error.message, true);
+      }
+    });
+
+    document.getElementById('paste-qr').addEventListener('click', async () => {
+      try {
+        const text = await navigator.clipboard.readText();
+        document.getElementById('qr-payload').value = text;
+        showMessage('qr-message', 'Clipboard pasted');
+      } catch (error) {
+        showMessage('qr-message', 'Failed to read clipboard', true);
+      }
+    });
+
+    document.getElementById('parse-qr').addEventListener('click', () => {
+      const raw = document.getElementById('qr-payload').value;
+      try {
+        parseQrPayload(raw);
+        showMessage('qr-message', 'QR payload loaded into form');
+      } catch (error) {
+        showMessage('qr-message', error.message || 'Failed to parse QR payload', true);
+      }
+    });
+
+    document.getElementById('copy-qr').addEventListener('click', () => {
+      const raw = document.getElementById('qr-payload').value;
+      if (!raw.trim()) {
+        showMessage('qr-message', 'Nothing to copy', true);
+        return;
+      }
+      copyText(raw, 'qr-message');
+    });
+
+    document.getElementById('copy-verify').addEventListener('click', () => {
+      if (!lastVerificationResult) {
+        showMessage('verify-message', 'No verification result yet', true);
+        return;
+      }
+      copyText(JSON.stringify(lastVerificationResult, null, 2), 'verify-message');
+    });
+
+    document.getElementById('qr-file').addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      if (!('BarcodeDetector' in window)) {
+        showMessage('qr-message', 'BarcodeDetector not supported. Use paste instead.', true);
+        return;
+      }
+
+      try {
+        const bitmap = await createImageBitmap(file);
+        const detector = new BarcodeDetector({ formats: ['qr_code'] });
+        const codes = await detector.detect(bitmap);
+        if (!codes.length) {
+          showMessage('qr-message', 'No QR code detected in image', true);
+          return;
+        }
+        const payload = codes[0].rawValue;
+        document.getElementById('qr-payload').value = payload;
+        showMessage('qr-message', 'QR payload extracted from image');
+      } catch (error) {
+        showMessage('qr-message', 'Failed to read QR image', true);
+      }
+    });
+
+    loadVerifierInfo();
+  </script>
+</body>
+</html>

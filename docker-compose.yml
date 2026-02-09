@@ -82,6 +82,8 @@ services:
       LEDGER_URL: http://ledger-browser:8000
       ACAPY_ADMIN_URL: http://issuer-acapy:11000
       TRUSTEE_ACAPY_ADMIN_URL: http://acapy-endorser:11000
+      QZ_PUBLIC_AGENT_URL: ${QZ_PUBLIC_AGENT_URL:-}
+      QZ_MOBILE_APP_SCHEME: ${QZ_MOBILE_APP_SCHEME:-quantumzero}
       BIND_ADDRESS: 0.0.0.0:8090
       RUST_LOG: info
     ports:
@@ -92,6 +94,23 @@ services:
     depends_on:
       issuer-acapy:
         condition: service_healthy
+    restart: unless-stopped
+
+  # Verifier application - minimal UI for submitting presentations
+  verifier-app:
+    build:
+      context: .
+      dockerfile: verifier_app/Dockerfile
+    container_name: qz-verifier-app
+    environment:
+      VERIFICATION_API_URL: http://qz-verification-api:8083
+      BIND_ADDRESS: 0.0.0.0:8091
+      RUST_LOG: info
+    ports:
+      - "3031:8091"
+    networks:
+      - quantumzero-network
+      - indy
     restart: unless-stopped
 
 networks:

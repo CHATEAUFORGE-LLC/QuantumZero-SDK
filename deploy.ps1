@@ -10,6 +10,25 @@ Write-Host ""
 try {
     docker info | Out-Null
     Write-Host "✓ Docker is running" -ForegroundColor Green
+
+    # Detect host IP for public agent URL (used in mobile invitations)
+    if (-not $env:QZ_PUBLIC_AGENT_URL -or $env:QZ_PUBLIC_AGENT_URL.Trim() -eq '') {
+        try {
+            $defaultRoute = Get-NetRoute -DestinationPrefix "0.0.0.0/0" | Sort-Object -Property RouteMetric | Select-Object -First 1
+            $ip = (Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex $defaultRoute.InterfaceIndex |
+                Where-Object { $_.IPAddress -ne '127.0.0.1' } | Select-Object -First 1).IPAddress
+            if ($ip) {
+                $env:QZ_PUBLIC_AGENT_URL = "http://$ip:8002"
+                Write-Host "✓ Using host IP for QZ_PUBLIC_AGENT_URL: $env:QZ_PUBLIC_AGENT_URL" -ForegroundColor Green
+            } else {
+                Write-Host "⚠ Unable to detect host IP. Set QZ_PUBLIC_AGENT_URL manually if mobile cannot connect." -ForegroundColor Yellow
+            }
+        } catch {
+            Write-Host "⚠ Unable to detect host IP. Set QZ_PUBLIC_AGENT_URL manually if mobile cannot connect." -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "✓ Using QZ_PUBLIC_AGENT_URL from environment: $env:QZ_PUBLIC_AGENT_URL" -ForegroundColor Green
+    }
 } catch {
     Write-Host "✗ Docker is not running. Please start Docker and try again." -ForegroundColor Red
     exit 1

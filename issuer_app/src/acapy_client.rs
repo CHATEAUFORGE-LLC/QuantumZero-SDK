@@ -58,17 +58,44 @@ pub struct CredDefDetail {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct OobInvitationResponse {
+    pub invitation: serde_json::Value,
+    #[serde(default)]
+    pub invitation_url: Option<String>,
+    #[serde(default)]
+    pub invi_msg_id: Option<String>,
+    #[serde(default)]
+    pub oob_id: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct ConnectionList {
     results: Vec<ConnectionRecord>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct ConnectionRecord {
-    connection_id: String,
+pub struct ConnectionRecord {
+    pub connection_id: String,
     #[serde(default)]
-    their_label: Option<String>,
+    pub their_label: Option<String>,
     #[serde(default)]
-    state: Option<String>,
+    pub state: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CredentialOfferResponse {
+    #[serde(default)]
+    pub cred_ex_id: Option<String>,
+    #[serde(default)]
+    pub state: Option<String>,
+    #[serde(default)]
+    pub role: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CredentialAttribute {
+    pub name: String,
+    pub value: String,
 }
 
 impl AcaPyClient {
@@ -77,6 +104,186 @@ impl AcaPyClient {
             admin_url,
             client: reqwest::Client::new(),
         }
+    }
+
+    /// Create an out-of-band invitation for wallet connection
+    pub async fn create_oob_invitation(&self, label: Option<&str>) -> Result<OobInvitationResponse> {
+        let url = format!("{}/out-of-band/create-invitation?auto_accept=true", self.admin_url);
+        let body = if let Some(label) = label {
+            json!({
+                "label": label,
+                "handshake_protocols": ["https://didcomm.org/didexchange/1.0"],
+                "use_public_did": false
+            })
+        } else {
+            json!({
+                "handshake_protocols": ["https://didcomm.org/didexchange/1.0"],
+                "use_public_did": false
+            })
+        };
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .context("Failed to create OOB invitation")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            anyhow::bail!("Failed to create OOB invitation: {} - {}", status, error_text);
+        }
+
+        let result: OobInvitationResponse = response
+            .json()
+            .await
+            .context("Failed to parse OOB invitation response")?;
+
+        Ok(result)
+    }
+
+    /// Lookup connection by invitation message id
+    pub async fn get_connection_by_invitation_id(
+        &self,
+        invitation_msg_id: &str,
+    ) -> Result<Option<ConnectionRecord>> {
+        let url = format!("{}/connections?invitation_msg_id={}", self.admin_url, invitation_msg_id);
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .context("Failed to query ACA-Py connections")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            anyhow::bail!("Failed to query connections: {} - {}", status, error_text);
+        }
+
+        let connections: ConnectionList = response
+            .json()
+            .await
+            .context("Failed to parse connections response")?;
+
+        Ok(connections.results.into_iter().next())
+    }
+
+    /// List connections, optionally filtered by invitation message id
+    pub async fn list_connections(
+        &self,
+        invitation_msg_id: Option<&str>,
+    ) -> Result<Vec<ConnectionRecord>> {
+        let url = if let Some(invitation_msg_id) = invitation_msg_id {
+            format!(
+                "{}/connections?invitation_msg_id={}",
+                self.admin_url, invitation_msg_id
+            )
+        } else {
+            format!("{}/connections", self.admin_url)
+        };
+
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .context("Failed to query ACA-Py connections")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            anyhow::bail!("Failed to query connections: {} - {}", status, error_text);
+        }
+
+        let connections: ConnectionList = response
+            .json()
+            .await
+            .context("Failed to parse connections response")?;
+
+        Ok(connections.results)
+    }
+
+    /// Send a credential offer over an existing connection
+    pub async fn send_credential_offer(
+        &self,
+        connection_id: &str,
+        cred_def_id: &str,
+        attributes: Vec<CredentialAttribute>,
+    ) -> Result<CredentialOfferResponse> {
+        let url = format!("{}/issue-credential-2.0/send-offer", self.admin_url);
+
+        let body = json!({
+            "connection_id": connection_id,
+            "auto_issue": true,
+            "auto_remove": true,
+            "credential_preview": {
+                "@type": "issue-credential/2.0/credential-preview",
+                "attributes": attributes
+            },
+            "filter": {
+                "indy": {
+                    "cred_def_id": cred_def_id
+                }
+            }
+        });
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .context("Failed to send credential offer")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            anyhow::bail!("Failed to send credential offer: {} - {}", status, error_text);
+        }
+
+        let result: CredentialOfferResponse = response
+            .json()
+            .await
+            .context("Failed to parse credential offer response")?;
+
+        Ok(result)
+    }
+
+    /// Send a custom message over an existing connection
+    pub async fn send_connection_message(
+        &self,
+        connection_id: &str,
+        message: &serde_json::Value,
+    ) -> Result<()> {
+        let url = format!(
+            "{}/connections/{}/send-message",
+            self.admin_url, connection_id
+        );
+
+        let content = serde_json::to_string(message)
+            .unwrap_or_else(|_| "{}".to_string());
+        let body = serde_json::json!({
+            "content": content
+        });
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .context("Failed to send connection message")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            anyhow::bail!("Failed to send connection message: {} - {}", status, error_text);
+        }
+
+        Ok(())
     }
 
     async fn get_endorser_connection_id(&self) -> Result<String> {

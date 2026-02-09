@@ -17,7 +17,7 @@ COPY verifier_app/src ./verifier_app/src
 COPY verifier_app/static ./verifier_app/static
 
 # Build the application
-RUN cargo build --release --package issuer_app
+RUN cargo build --release --package verifier_app
 
 # Runtime stage
 FROM debian:bookworm-slim
@@ -29,15 +29,15 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Copy the binary
-COPY --from=builder /app/target/release/issuer_app /app/issuer_app
+COPY --from=builder /app/target/release/verifier_app /app/verifier_app
 
 # Copy static files
-COPY issuer_app/static /app/static
+COPY verifier_app/static /app/static
 
 ENV RUST_LOG=info
-ENV ISSUANCE_API_URL=http://issuance-api:8081
-ENV BIND_ADDRESS=0.0.0.0:8090
+ENV VERIFICATION_API_URL=http://verification-api:8083
+ENV BIND_ADDRESS=0.0.0.0:8091
 
-EXPOSE 8090
+EXPOSE 8091
 
-CMD ["/app/issuer_app"]
+CMD ["/app/verifier_app"]
