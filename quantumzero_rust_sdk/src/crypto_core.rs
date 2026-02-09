@@ -1,7 +1,7 @@
-use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey, Signature, SecretKey};
+use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey, Signature};
 use rand::rngs::OsRng;
 use sha2::{Sha256, Digest};
-use p256::ecdsa::{signature::Verifier as P256Verifier, Signature as P256Signature, VerifyingKey as P256VerifyingKey};
+use p256::ecdsa::{Signature as P256Signature, VerifyingKey as P256VerifyingKey};
 
 /// Core cryptographic operations for QuantumZero identity platform
 /// Provides W3C DID-compliant Ed25519 key generation, signing, and verification

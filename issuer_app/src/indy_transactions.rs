@@ -103,7 +103,7 @@ pub fn sign_transaction(
 
 /// Extract schema sequence number from schema_id
 /// This is a simplified version - in production you'd query the ledger
-fn extract_schema_seq_no(schema_id: &str) -> Result<u64> {
+fn extract_schema_seq_no(_schema_id: &str) -> Result<u64> {
     // For now, return a placeholder
     // In production, this would query the ledger to get the actual seq_no
     // The schema_id format is typically: <did>:2:<name>:<version>

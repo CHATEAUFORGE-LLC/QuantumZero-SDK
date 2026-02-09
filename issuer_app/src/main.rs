@@ -220,11 +220,6 @@ fn encode_invitation_oob(invitation: &serde_json::Value) -> Option<String> {
     Some(URL_SAFE_NO_PAD.encode(payload))
 }
 
-fn build_public_invitation_url(oob: &str) -> Option<String> {
-    let base = public_agent_base_url()?;
-    build_public_invitation_url_with_base(oob, &base)
-}
-
 fn build_public_invitation_url_with_base(oob: &str, base: &str) -> Option<String> {
     let mut url = Url::parse(base).ok()?;
     url.set_query(Some(&format!("oob={}", oob)));

@@ -325,8 +325,8 @@ impl ApiClient {
     pub async fn sync_issuer_data(
         &self,
         did: &str,
-        signing_key: &ed25519_dalek::SigningKey,
-        verifying_key: &ed25519_dalek::VerifyingKey,
+        _signing_key: &ed25519_dalek::SigningKey,
+        _verifying_key: &ed25519_dalek::VerifyingKey,
     ) -> Result<serde_json::Value> {
         // Query the ledger browser directly to check if data has been written
         // Fetch recent ledger transactions
