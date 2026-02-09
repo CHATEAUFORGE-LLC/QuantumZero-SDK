@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>QuantumZero Verifier</title>
+  <title>QuantumZero Verifier - ACA-Py</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -13,7 +13,7 @@
       padding: 20px;
       color: #1e293b;
     }
-    .container { max-width: 1000px; margin: 0 auto; }
+    .container { max-width: 1200px; margin: 0 auto; }
     header {
       background: white;
       padding: 24px;
@@ -25,7 +25,7 @@
     .subtitle { color: #64748b; font-size: 14px; }
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
       gap: 20px;
     }
     .card {
@@ -42,15 +42,15 @@
       padding-bottom: 8px;
     }
     .form-group { margin-bottom: 12px; }
-    label { display: block; margin-bottom: 6px; font-size: 13px; color: #475569; }
-    input, textarea {
+    label { display: block; margin-bottom: 6px; font-size: 13px; color: #475569; font-weight: 500; }
+    input, textarea, select {
       width: 100%;
       padding: 10px;
-      border: 1px solid #cbd5f5;
+      border: 1px solid #cbd5e1;
       border-radius: 6px;
       font-size: 13px;
     }
-    textarea { min-height: 120px; font-family: 'Courier New', monospace; }
+    textarea { min-height: 80px; font-family: 'Courier New', monospace; }
     button {
       width: 100%;
       background: #2563eb;
@@ -60,310 +60,646 @@
       border-radius: 6px;
       font-weight: 600;
       cursor: pointer;
+      transition: background 0.2s;
     }
     button:hover { background: #1d4ed8; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.secondary { background: #64748b; }
+    button.secondary:hover { background: #475569; }
     .info-box {
       background: #f8fafc;
       border: 1px solid #e2e8f0;
       border-radius: 6px;
       padding: 10px;
       margin-bottom: 10px;
+      font-size: 13px;
     }
     .info-box strong { display: block; font-size: 12px; color: #64748b; margin-bottom: 4px; }
-    .info-box span { font-size: 12px; word-break: break-all; }
+    .info-box span { word-break: break-all; }
     .message { margin-top: 10px; padding: 10px; border-radius: 6px; font-size: 13px; }
     .message.success { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
     .message.error { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
-    .button-row { display: flex; gap: 8px; flex-wrap: wrap; }
-    .button-row button { width: auto; flex: 1; min-width: 140px; }
-    .muted { color: #64748b; font-size: 12px; }
+    .message.info { background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; }
+    .connection-item {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      padding: 10px;
+      border-radius: 6px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .connection-item:hover { background: #e0f2fe; border-color: #0ea5e9; }
+    .connection-item.selected { background: #dbeafe; border-color: #2563eb; border-width: 2px; }
+    .connection-item strong { display: block; margin-bottom: 4px; }
+    .connection-item small { color: #64748b; font-size: 12px; }
+    .proof-record {
+      background: #f0f9ff;
+      border: 1px solid #bae6fd;
+      padding: 12px;
+      border-radius: 6px;
+      margin-bottom: 10px;
+    }
+    .proof-record.verified { background: #dcfce7; border-color: #bbf7d0; }
+    .proof-record.failed { background: #fee2e2; border-color: #fecaca; }
+    .proof-record h3 { font-size: 14px; margin-bottom: 6px; }
+    .proof-record p { font-size: 12px; color: #64748b; margin: 4px 0; }
+    .badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .badge.active { background: #dcfce7; color: #166534; }
+    .badge.verified { background: #dbeafe; color: #1e40af; }
+    .badge.pending { background: #fef3c7; color: #92400e; }
+    pre {
+      background: #1e293b;
+      color: #94a3b8;
+      padding: 12px;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-size: 12px;
+      margin-top: 8px;
+    }
+    .button-row { display: flex; gap: 8px; margin-top: 12px; }
+    .button-row button { width: auto; flex: 1; }
+
+    /* Modal Styles */
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(4px);
+    }
+    .modal.show { display: flex; align-items: center; justify-content: center; }
+    .modal-content {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+      max-width: 800px;
+      max-height: 80vh;
+      width: 90%;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .modal-header {
+      padding: 20px 24px;
+      border-bottom: 1px solid #e2e8f0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal-header h2 { margin: 0; color: #0f172a; font-size: 20px; }
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 28px;
+      color: #64748b;
+      cursor: pointer;
+      padding: 0;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+      transition: all 0.2s;
+    }
+    .modal-close:hover { background: #f1f5f9; color: #0f172a; }
+    .modal-body {
+      padding: 24px;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .detail-section {
+      margin-bottom: 20px;
+    }
+    .detail-section h3 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #0f172a;
+      margin-bottom: 8px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .detail-row {
+      display: flex;
+      padding: 8px 0;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .detail-row:last-child { border-bottom: none; }
+    .detail-label {
+      font-weight: 600;
+      color: #64748b;
+      font-size: 13px;
+      min-width: 140px;
+    }
+    .detail-value {
+      color: #0f172a;
+      font-size: 13px;
+      flex: 1;
+      word-break: break-word;
+    }
+    .verification-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 13px;
+    }
+    .verification-status.passed { background: #dcfce7; color: #166534; }
+    .verification-status.pending { background: #fef3c7; color: #92400e; }
+    .verification-status.failed { background: #fee2e2; color: #991b1b; }
+    .attribute-list {
+      list-style: none;
+      padding: 0;
+      margin: 8px 0 0 0;
+    }
+    .attribute-list li {
+      padding: 8px 12px;
+      background: #f8fafc;
+      border-radius: 6px;
+      margin-bottom: 6px;
+      font-size: 13px;
+    }
+    .attribute-list li strong { color: #0f172a; margin-right: 8px; }
+    .json-view {
+      background: #1e293b;
+      color: #94a3b8;
+      padding: 16px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <header>
-      <h1>🔍 QuantumZero Verifier</h1>
-      <p class="subtitle">Validate wallet presentations via QuantumZero Verification API</p>
+      <h1>🔐 QuantumZero Verifier</h1>
+      <p class="subtitle">RFC 0037 Present Proof Protocol - Powered by ACA-Py</p>
+      <div class="info-box" style="margin-top: 12px;">
+        <strong>Verifier ID:</strong>
+        <span id="verifier-id">Loading...</span>
+      </div>
     </header>
 
+    <!-- Proof Details Modal -->
+    <div id="proofModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>🔍 Proof Verification Details</h2>
+          <button class="modal-close" onclick="closeProofModal()">&times;</button>
+        </div>
+        <div class="modal-body" id="modalBody">
+          <!-- Content will be populated by JavaScript -->
+        </div>
+      </div>
+    </div>
+
     <div class="grid">
+      <!-- Step 1: Create Invitation -->
       <div class="card">
-        <h2>QR Intake</h2>
+        <h2>📱 1. Create Connection Invitation</h2>
+        <p class="muted" style="margin-bottom: 12px;">Generate an invitation QR code for mobile wallets to scan</p>
+        
         <div class="form-group">
-          <label for="qr-payload">QR Payload (paste or scan output)</label>
-          <textarea id="qr-payload" placeholder="Paste QR payload JSON here"></textarea>
-          <div class="muted">Accepts JSON with presentation + signature + verkey.</div>
+          <label for="invitation-label">Invitation Label</label>
+          <input type="text" id="invitation-label" value="QuantumZero Verifier" placeholder="Verifier Name">
         </div>
-        <div class="form-group">
-          <label for="qr-file">QR Image (optional)</label>
-          <input type="file" id="qr-file" accept="image/*">
-        </div>
-        <div class="button-row">
-          <button type="button" id="paste-qr">Paste from Clipboard</button>
-          <button type="button" id="parse-qr" style="background:#16a34a;">Load into Form</button>
-          <button type="button" id="copy-qr" style="background:#0f172a;">Copy Code</button>
-        </div>
-        <div id="qr-message"></div>
+
+        <button onclick="createInvitation()">Generate Invitation QR Code</button>
+
+        <div id="invitation-result"></div>
       </div>
 
+      <!-- Step 2: Select Connection -->
       <div class="card">
-        <h2>Verifier Keys</h2>
-        <form id="verifier-keys-form">
-          <div class="form-group">
-            <label for="seed">Seed (optional, 32 chars)</label>
-            <input type="text" id="seed" name="seed" placeholder="32-character seed">
-          </div>
-          <button type="submit">Generate Verifier Keys</button>
-        </form>
-        <div id="verifier-message"></div>
-        <div id="verifier-info" style="margin-top: 12px;"></div>
+        <h2>🤝 2. Select Active Connection</h2>
+        <p class="muted" style="margin-bottom: 12px;">Choose a wallet connection to request proof from</p>
+        
+        <button onclick="refreshConnections()" class="secondary">Refresh Connections</button>
+
+        <div id="connections-list" style="margin-top: 12px;"></div>
       </div>
 
+      <!-- Step 3: Request Proof -->
       <div class="card">
-        <h2>Verify Presentation</h2>
-        <form id="verify-form">
-          <div class="form-group">
-            <label for="presentation">Presentation (JSON)</label>
-            <textarea id="presentation" name="presentation" required>{}</textarea>
-          </div>
-          <div class="form-group">
-            <label for="signature">Presentation Signature (base64)</label>
-            <input type="text" id="signature" name="signature" placeholder="base64 signature" required>
-          </div>
-          <div class="form-group">
-            <label for="verkey">Presenter Verkey (base64)</label>
-            <input type="text" id="verkey" name="verkey" placeholder="base64 verkey" required>
-          </div>
-          <div class="form-group">
-            <label for="issuer-did">Issuer DID (optional)</label>
-            <input type="text" id="issuer-did" name="issuer_did" placeholder="did:sov:...">
-          </div>
-          <div class="form-group">
-            <label for="cred-def-id">Credential Definition ID (optional)</label>
-            <input type="text" id="cred-def-id" name="cred_def_id" placeholder="did:sov:...:3:CL:...:tag">
-          </div>
-          <div class="form-group">
-            <label for="rev-reg-id">Revocation Registry ID (optional)</label>
-            <input type="text" id="rev-reg-id" name="rev_reg_id" placeholder="rev_reg_id">
-          </div>
-          <div class="form-group">
-            <label for="cred-rev-id">Credential Revocation ID (optional)</label>
-            <input type="text" id="cred-rev-id" name="credential_revocation_id" placeholder="revocation id">
-          </div>
-          <button type="submit" style="background:#16a34a;">Verify Presentation</button>
-        </form>
-        <div id="verify-message"></div>
-        <div class="button-row" style="margin-top: 10px;">
-          <button type="button" id="copy-verify" style="background:#0f172a;">Copy Verification Result</button>
+        <h2>📋 3. Send Proof Request</h2>
+        <p class="muted" style="margin-bottom: 12px;">Request specific attributes and predicates from the wallet</p>
+        
+        <div class="form-group">
+          <label for="proof-name">Proof Request Name</label>
+          <input type="text" id="proof-name" value="Identity Verification" placeholder="Proof Request Name">
         </div>
+
+        <div class="form-group">
+          <label for="requested-attributes">Requested Attributes (JSON)</label>
+          <textarea id="requested-attributes">{
+  "attr_name": {
+    "name": "name",
+    "restrictions": []
+  },
+  "attr_dob": {
+    "name": "dateOfBirth",
+    "restrictions": []
+  }
+}</textarea>
+        </div>
+
+        <div class="form-group">
+          <label for="requested-predicates">Requested Predicates (JSON) - Optional</label>
+          <textarea id="requested-predicates">{
+  "pred_age": {
+    "name": "age",
+    "p_type": ">=",
+    "p_value": 18,
+    "restrictions": []
+  }
+}</textarea>
+        </div>
+
+        <button onclick="sendProofRequest()" id="request-button" disabled>Send Proof Request</button>
+
+        <div id="proof-request-result"></div>
+      </div>
+
+      <!-- Step 4: View Results -->
+      <div class="card">
+        <h2>✅ 4. Verification Results</h2>
+        <p class="muted" style="margin-bottom: 12px;">View all proof presentations and their verification status</p>
+        
+        <button onclick="refreshProofRecords()" class="secondary">Refresh Results</button>
+
+        <div id="proof-records-list" style="margin-top: 12px;"></div>
       </div>
     </div>
   </div>
 
   <script>
-    function showMessage(elementId, message, isError = false) {
-      const container = document.getElementById(elementId);
-      container.innerHTML = `<div class="message ${isError ? 'error' : 'success'}">${message}</div>`;
-      setTimeout(() => { container.innerHTML = ''; }, 6000);
-    }
+    let selectedConnectionId = null;
 
-    let lastVerificationResult = null;
-
-    function setFieldValue(id, value) {
-      const field = document.getElementById(id);
-      if (!field) return;
-      field.value = value ?? '';
-    }
-
-    function parseQrPayload(raw) {
-      const trimmed = (raw || '').trim();
-      if (!trimmed) {
-        throw new Error('QR payload is empty');
-      }
-
-      let data = null;
-      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-        data = JSON.parse(trimmed);
-      } else {
-        // Attempt base64 decode -> JSON
-        try {
-          const decoded = atob(trimmed);
-          data = JSON.parse(decoded);
-        } catch (error) {
-          throw new Error('QR payload is not valid JSON or base64 JSON');
-        }
-      }
-
-      const presentation = data.presentation ?? data.presentation_request ?? data.presentationRequest;
-      if (presentation) {
-        setFieldValue('presentation',
-          typeof presentation === 'string'
-            ? presentation
-            : JSON.stringify(presentation, null, 2)
-        );
-      }
-      if (data.signature) setFieldValue('signature', data.signature);
-      if (data.verkey) setFieldValue('verkey', data.verkey);
-      if (data.issuer_did) setFieldValue('issuer-did', data.issuer_did);
-      if (data.cred_def_id) setFieldValue('cred-def-id', data.cred_def_id);
-      if (data.rev_reg_id) setFieldValue('rev-reg-id', data.rev_reg_id);
-      if (data.credential_revocation_id) setFieldValue('cred-rev-id', data.credential_revocation_id);
-    }
-
-    async function copyText(text, successMessageId) {
-      try {
-        await navigator.clipboard.writeText(text);
-        if (successMessageId) {
-          showMessage(successMessageId, 'Copied to clipboard');
-        }
-      } catch (error) {
-        if (successMessageId) {
-          showMessage(successMessageId, 'Failed to copy', true);
-        }
-      }
-    }
+    // Load verifier info on page load
+    window.addEventListener('DOMContentLoaded', () => {
+      loadVerifierInfo();
+      refreshConnections();
+      refreshProofRecords();
+      
+      // Auto-refresh connections and proofs every 5 seconds
+      setInterval(() => {
+        refreshConnections();
+        refreshProofRecords();
+      }, 5000);
+    });
 
     async function loadVerifierInfo() {
       try {
         const response = await fetch('/api/verifier-info');
         const data = await response.json();
-        const container = document.getElementById('verifier-info');
-
-        if (!data.verifier_id) {
-          container.innerHTML = '<div class="info-box">No verifier keys created yet.</div>';
-          return;
-        }
-
-        container.innerHTML = `
-          <div class="info-box">
-            <strong>Verifier ID</strong>
-            <span>${data.verifier_id}</span>
-          </div>
-          <div class="info-box">
-            <strong>Verifier Verkey (base64)</strong>
-            <span>${data.verkey_base64 || 'N/A'}</span>
-          </div>
-        `;
+        document.getElementById('verifier-id').textContent = data.verifier_id || 'Not available';
       } catch (error) {
-        console.error('Failed to load verifier info', error);
+        console.error('Failed to load verifier info:', error);
+        document.getElementById('verifier-id').textContent = 'Error loading';
       }
     }
 
-    document.getElementById('verifier-keys-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const formData = new FormData(e.target);
-      const data = Object.fromEntries(formData);
-
-      if (data.seed && data.seed.trim().length === 0) {
-        delete data.seed;
-      }
-
+    async function createInvitation() {
+      const label = document.getElementById('invitation-label').value;
+      const resultDiv = document.getElementById('invitation-result');
+      
       try {
-        const response = await fetch('/api/create-verifier-keys', {
+        const response = await fetch('/api/create-invitation', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data)
+          body: JSON.stringify({ label })
         });
-        const result = await response.json();
-
-        if (result.success) {
-          showMessage('verifier-message', `Verifier keys created. ID: ${result.verifier_id}`);
-          loadVerifierInfo();
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          // Display QR code if available
+          const qrSection = data.qr_code_svg ? `
+            <div style="margin: 16px 0; padding: 16px; background: white; border-radius: 8px; text-align: center;">
+              ${data.qr_code_svg}
+              <p style="margin-top: 12px; color: #333; font-weight: 500;">📱 Scan with QuantumZero Mobile App</p>
+            </div>
+          ` : '';
+          
+          // Display deep link if available
+          const deepLinkSection = data.deep_link ? `
+            <div style="margin-top: 12px;">
+              <label style="display: block; margin-bottom: 4px; font-weight: 600; color: #333;">App Deep Link:</label>
+              <pre style="font-size: 11px; word-break: break-all;">${data.deep_link}</pre>
+            </div>
+          ` : '';
+          
+          resultDiv.innerHTML = `
+            <div class="message success">
+              <strong>✅ Invitation Created!</strong>
+              ${qrSection}
+              ${deepLinkSection}
+              <p style="margin-top: 12px;"><strong>Invitation ID:</strong> <code>${data.invi_msg_id || 'N/A'}</code></p>
+              <p class="muted" style="margin-top: 8px; font-size: 13px;">Connection will appear below once wallet scans the QR code</p>
+            </div>
+          `;
+          // Auto-refresh connections after creating invitation
+          setTimeout(refreshConnections, 2000);
         } else {
-          showMessage('verifier-message', result.error || 'Failed to create verifier keys', true);
+          resultDiv.innerHTML = `<div class="message error">❌ ${data.error}</div>`;
         }
       } catch (error) {
-        showMessage('verifier-message', 'Error: ' + error.message, true);
+        resultDiv.innerHTML = `<div class="message error">❌ Network error: ${error.message}</div>`;
       }
-    });
+    }
 
-    document.getElementById('verify-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const formData = new FormData(e.target);
-      const data = Object.fromEntries(formData);
-
+    async function refreshConnections() {
+      const listDiv = document.getElementById('connections-list');
+      
       try {
-        const response = await fetch('/api/verify-presentation', {
+        const response = await fetch('/api/connections');
+        const data = await response.json();
+        
+        if (data.success && data.connections.length > 0) {
+          let html = '<div style="margin-bottom: 12px; font-weight: 600; color: #666;">Available Connections:</div>';
+          html += '<div class="message info" style="font-size: 13px; margin-bottom: 12px;">💡 Connections in \'response\' or \'completed\' state should work for proof requests. If a request fails, the connection may need more time to stabilize.</div>';
+          
+          html += data.connections.map(conn => {
+            const isActive = conn.state === 'active' || conn.state === 'completed';
+            const badgeClass = isActive ? 'active' : 'pending';
+            const stateEmoji = isActive ? '✅' : '⏳';
+            
+            return `
+              <div class="connection-item ${conn.connection_id === selectedConnectionId ? 'selected' : ''}" 
+                   onclick="selectConnection('${conn.connection_id}')">
+                <strong>${stateEmoji} ${conn.their_label || 'Unknown Wallet'}</strong>
+                <small>ID: ${conn.connection_id}</small>
+                <small style="display: block;">State: <span class="badge ${badgeClass}">${conn.state || 'unknown'}</span></small>
+              </div>
+            `;
+          }).join('');
+          
+          listDiv.innerHTML = html;
+        } else {
+          listDiv.innerHTML = '<div class="message info">No connections yet. Create an invitation first.</div>';
+        }
+      } catch (error) {
+        listDiv.innerHTML = `<div class="message error">Failed to load connections: ${error.message}</div>`;
+      }
+    }
+
+    function selectConnection(connectionId) {
+      selectedConnectionId = connectionId;
+      document.getElementById('request-button').disabled = false;
+      refreshConnections();
+    }
+
+    async function sendProofRequest() {
+      if (!selectedConnectionId) {
+        alert('Please select a connection first');
+        return;
+      }
+
+      const resultDiv = document.getElementById('proof-request-result');
+      const name = document.getElementById('proof-name').value;
+      
+      let requestedAttributes, requestedPredicates;
+      
+      try {
+        requestedAttributes = JSON.parse(document.getElementById('requested-attributes').value);
+        const predicatesText = document.getElementById('requested-predicates').value.trim();
+        requestedPredicates = predicatesText ? JSON.parse(predicatesText) : {};
+      } catch (error) {
+        resultDiv.innerHTML = `<div class="message error">❌ Invalid JSON: ${error.message}</div>`;
+        return;
+      }
+      
+      try {
+        const response = await fetch('/api/send-proof-request', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data)
+          body: JSON.stringify({
+            connection_id: selectedConnectionId,
+            name,
+            requested_attributes: requestedAttributes,
+            requested_predicates: requestedPredicates
+          })
         });
-        const result = await response.json();
-
-        if (result.success) {
-          lastVerificationResult = result;
-          showMessage('verify-message', `Verified: ${result.verified} (${result.status})`);
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          resultDiv.innerHTML = `
+            <div class="message success">
+              <strong>✅ Proof Request Sent!</strong>
+              <p style="margin-top: 8px;"><strong>Exchange ID:</strong> ${data.pres_ex_id}</p>
+              <p><strong>State:</strong> ${data.state}</p>
+            </div>
+          `;
+          // Auto-refresh proof records
+          setTimeout(refreshProofRecords, 2000);
         } else {
-          showMessage('verify-message', result.error || 'Verification failed', true);
+          resultDiv.innerHTML = `<div class="message error">❌ ${data.error}</div>`;
         }
       } catch (error) {
-        showMessage('verify-message', 'Error: ' + error.message, true);
+        resultDiv.innerHTML = `<div class="message error">❌ Network error: ${error.message}</div>`;
       }
-    });
+    }
 
-    document.getElementById('paste-qr').addEventListener('click', async () => {
+    async function refreshProofRecords() {
+      const listDiv = document.getElementById('proof-records-list');
+      
       try {
-        const text = await navigator.clipboard.readText();
-        document.getElementById('qr-payload').value = text;
-        showMessage('qr-message', 'Clipboard pasted');
-      } catch (error) {
-        showMessage('qr-message', 'Failed to read clipboard', true);
-      }
-    });
-
-    document.getElementById('parse-qr').addEventListener('click', () => {
-      const raw = document.getElementById('qr-payload').value;
-      try {
-        parseQrPayload(raw);
-        showMessage('qr-message', 'QR payload loaded into form');
-      } catch (error) {
-        showMessage('qr-message', error.message || 'Failed to parse QR payload', true);
-      }
-    });
-
-    document.getElementById('copy-qr').addEventListener('click', () => {
-      const raw = document.getElementById('qr-payload').value;
-      if (!raw.trim()) {
-        showMessage('qr-message', 'Nothing to copy', true);
-        return;
-      }
-      copyText(raw, 'qr-message');
-    });
-
-    document.getElementById('copy-verify').addEventListener('click', () => {
-      if (!lastVerificationResult) {
-        showMessage('verify-message', 'No verification result yet', true);
-        return;
-      }
-      copyText(JSON.stringify(lastVerificationResult, null, 2), 'verify-message');
-    });
-
-    document.getElementById('qr-file').addEventListener('change', async (e) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-
-      if (!('BarcodeDetector' in window)) {
-        showMessage('qr-message', 'BarcodeDetector not supported. Use paste instead.', true);
-        return;
-      }
-
-      try {
-        const bitmap = await createImageBitmap(file);
-        const detector = new BarcodeDetector({ formats: ['qr_code'] });
-        const codes = await detector.detect(bitmap);
-        if (!codes.length) {
-          showMessage('qr-message', 'No QR code detected in image', true);
-          return;
+        const response = await fetch('/api/proof-records');
+        const data = await response.json();
+        
+        if (data.success && data.records.length > 0) {
+          listDiv.innerHTML = data.records.map(record => {
+            const isVerified = record.state === 'verified' || record.state === 'presentation_received';
+            const verifiedStatus = record.verified === 'true';
+            const cssClass = isVerified && verifiedStatus ? 'verified' : (record.state === 'request_sent' ? '' : 'failed');
+            
+            // Extract revealed attributes if presentation exists
+            let revealedAttrs = '';
+            if (record.presentation && record.presentation.requested_proof) {
+              const revealed = record.presentation.requested_proof.revealed_attrs || {};
+              const selfAttested = record.presentation.requested_proof.self_attested_attrs || {};
+              const predicates = record.presentation.requested_proof.predicates || {};
+              
+              if (Object.keys(revealed).length > 0) {
+                revealedAttrs = '<div style="margin-top: 8px;"><strong>📋 Revealed Attributes:</strong><ul style="margin: 4px 0; padding-left: 20px;">';
+                for (const [key, value] of Object.entries(revealed)) {
+                  revealedAttrs += `<li><strong>${key}:</strong> ${value.raw || value}</li>`;
+                }
+                revealedAttrs += '</ul></div>';
+              }
+              
+              if (Object.keys(predicates).length > 0) {
+                revealedAttrs += '<div style="margin-top: 8px;"><strong>🔢 Predicates:</strong><ul style="margin: 4px 0; padding-left: 20px;">';
+                for (const [key] of Object.entries(predicates)) {
+                  revealedAttrs += `<li>✅ ${key} satisfied</li>`;
+                }
+                revealedAttrs += '</ul></div>';
+              }
+            }
+            
+            return `
+              <div class="proof-record ${cssClass}">
+                <h3>Presentation ${record.pres_ex_id ? record.pres_ex_id.substring(0, 8) + '...' : 'Unknown'}</h3>
+                <p><strong>Connection:</strong> ${record.connection_id.substring(0, 8)}...</p>
+                <p><strong>State:</strong> <span class="badge ${isVerified ? 'verified' : 'pending'}">${record.state}</span></p>
+                ${verifiedStatus ? '<p><strong>✅ Cryptographic Verification:</strong> <span style="color: #22c55e; font-weight: 600;">PASSED</span></p>' : ''}
+                ${!verifiedStatus && isVerified ? '<p><strong>❌ Cryptographic Verification:</strong> <span style="color: #ef4444; font-weight: 600;">FAILED</span></p>' : ''}
+                ${revealedAttrs}
+                <div class="button-row">
+                  <button onclick="viewProofDetails('${record.pres_ex_id}')">View Full Details</button>
+                </div>
+              </div>
+            `;
+          }).join('');
+        } else {
+          listDiv.innerHTML = '<div class="message info">No proof requests yet. Send a proof request to see results.</div>';
         }
-        const payload = codes[0].rawValue;
-        document.getElementById('qr-payload').value = payload;
-        showMessage('qr-message', 'QR payload extracted from image');
       } catch (error) {
-        showMessage('qr-message', 'Failed to read QR image', true);
+        listDiv.innerHTML = `<div class="message error">Failed to load proof records: ${error.message}</div>`;
       }
-    });
+    }
 
-    loadVerifierInfo();
+    async function viewProofDetails(presExId) {
+      try {
+        const response = await fetch(`/api/proof-records/${presExId}`);
+        const data = await response.json();
+        
+        if (data.success) {
+          const record = data.record;
+          displayProofModal(record);
+        } else {
+          alert('Failed to load details: ' + data.error);
+        }
+      } catch (error) {
+        alert('Network error: ' + error.message);
+      }
+    }
+
+    function displayProofModal(record) {
+      const modalBody = document.getElementById('modalBody');
+      
+      // Determine verification status: null = pending, 'true' = passed, 'false' = failed
+      let verificationStatus, verificationClass, verificationIcon;
+      if (record.verified === null || record.verified === undefined) {
+        verificationStatus = 'PENDING';
+        verificationClass = 'pending';
+        verificationIcon = '⏳';
+      } else if (record.verified === 'true' || record.verified === true) {
+        verificationStatus = 'PASSED';
+        verificationClass = 'passed';
+        verificationIcon = '✅';
+      } else {
+        verificationStatus = 'FAILED';
+        verificationClass = 'failed';
+        verificationIcon = '❌';
+      }
+      
+      let html = `
+        <div class="detail-section">
+          <h3>📊 Verification Status</h3>
+          <div class="detail-row">
+            <div class="detail-label">Presentation Exchange ID:</div>
+            <div class="detail-value"><code>${record.pres_ex_id || 'N/A'}</code></div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Connection ID:</div>
+            <div class="detail-value"><code>${record.connection_id || 'N/A'}</code></div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">State:</div>
+            <div class="detail-value"><span class="badge ${record.state === 'verified' ? 'verified' : 'pending'}">${record.state}</span></div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Cryptographic Verification:</div>
+            <div class="detail-value">
+              <span class="verification-status ${verificationClass}">
+                ${verificationIcon} ${verificationStatus}
+              </span>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      if (record.presentation && record.presentation.requested_proof) {
+        const proof = record.presentation.requested_proof;
+        
+        if (proof.revealed_attrs && Object.keys(proof.revealed_attrs).length > 0) {
+          html += `
+            <div class="detail-section">
+              <h3>📋 Revealed Attributes</h3>
+              <ul class="attribute-list">
+          `;
+          for (const [key, value] of Object.entries(proof.revealed_attrs)) {
+            html += `<li><strong>${key}:</strong> ${value.raw || value}</li>`;
+          }
+          html += '</ul></div>';
+        }
+        
+        if (proof.self_attested_attrs && Object.keys(proof.self_attested_attrs).length > 0) {
+          html += `
+            <div class="detail-section">
+              <h3>📝 Self-Attested Attributes</h3>
+              <ul class="attribute-list">
+          `;
+          for (const [key, value] of Object.entries(proof.self_attested_attrs)) {
+            html += `<li><strong>${key}:</strong> ${value}</li>`;
+          }
+          html += '</ul></div>';
+        }
+        
+        if (proof.predicates && Object.keys(proof.predicates).length > 0) {
+          html += `
+            <div class="detail-section">
+              <h3>🔢 Zero-Knowledge Predicates</h3>
+              <ul class="attribute-list">
+          `;
+          for (const [key] of Object.entries(proof.predicates)) {
+            html += `<li>✅ <strong>${key}</strong> satisfied</li>`;
+          }
+          html += '</ul></div>';
+        }
+      }
+      
+      html += `
+        <div class="detail-section">
+          <h3>🔧 Raw Data</h3>
+          <div class="json-view">${JSON.stringify(record, null, 2)}</div>
+        </div>
+      `;
+      
+      modalBody.innerHTML = html;
+      document.getElementById('proofModal').classList.add('show');
+    }
+
+    function closeProofModal() {
+      document.getElementById('proofModal').classList.remove('show');
+    }
+
+    // Close modal when clicking outside
+    window.onclick = function(event) {
+      const modal = document.getElementById('proofModal');
+      if (event.target === modal) {
+        closeProofModal();
+      }
+    }
   </script>
 </body>
 </html>

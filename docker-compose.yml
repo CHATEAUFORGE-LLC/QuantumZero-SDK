@@ -96,14 +96,57 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # Verifier application - minimal UI for submitting presentations
+  # ACA-Py agent for the verifier - handles proof verification via DIDComm
+  verifier-acapy:
+    image: ghcr.io/openwallet-foundation/acapy-agent:py3.12-1.2-lts
+    container_name: qz-verifier-acapy
+    command: >
+      start
+      --inbound-transport http 0.0.0.0 8000
+      --outbound-transport http
+      --admin 0.0.0.0 11000
+      --admin-insecure-mode
+      --label "QuantumZero-Verifier-Agent"
+      --endpoint http://verifier-acapy:8000
+      --auto-provision
+      --wallet-type askar
+      --wallet-name qz-verifier
+      --wallet-key qz-verifier-secure-key-change-in-production
+      --genesis-url http://ledger-browser:8000/genesis
+      --auto-accept-invites
+      --auto-accept-requests
+      --auto-respond-presentation-proposal
+      --auto-respond-presentation-request
+      --auto-verify-presentation
+      --public-invites
+      --log-level info
+    ports:
+      - "11002:11000"
+      - "8003:8000"
+    volumes:
+      - verifier_acapy_data:/home/aries/.acapy_agent
+    networks:
+      - quantumzero-network
+      - indy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11000/status/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Verifier application - web UI for requesting and verifying proofs
   verifier-app:
     build:
       context: .
       dockerfile: verifier_app/Dockerfile
     container_name: qz-verifier-app
     environment:
-      VERIFICATION_API_URL: http://qz-verification-api:8083
+      ISSUANCE_API_URL: http://qz-issuance-api:8081
+      LEDGER_URL: http://ledger-browser:8000
+      ACAPY_ADMIN_URL: http://verifier-acapy:11000
+      QZ_PUBLIC_VERIFIER_URL: ${QZ_PUBLIC_VERIFIER_URL:-}
+      QZ_MOBILE_APP_SCHEME: ${QZ_MOBILE_APP_SCHEME:-quantumzero}
       BIND_ADDRESS: 0.0.0.0:8091
       RUST_LOG: info
     ports:
@@ -111,6 +154,9 @@ services:
     networks:
       - quantumzero-network
       - indy
+    depends_on:
+      verifier-acapy:
+        condition: service_healthy
     restart: unless-stopped
 
 networks:
@@ -123,4 +169,5 @@ networks:
 
 volumes:
   issuer_acapy_data:
+  verifier_acapy_data:
   tails_files:
