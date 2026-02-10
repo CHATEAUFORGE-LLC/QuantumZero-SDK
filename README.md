@@ -1,5 +1,5 @@
 # QuantumZero-SDK
-The QuantumZero-SDK repository provides a set of reusable, standardized libraries that enable third-party applications or services to integrate with the QuantumZero identity platform. The SDK abstracts complex cryptographic operations and Decentralized Identity (DID) workflows, allowing partners to perform authentication, validate Verifiable Credentials, and interact with Zero-Knowledge Proof (ZKP) challenges using simple, well-documented functions.
+The QuantumZero-SDK repository provides reusable SDKs plus reference issuer/verifier apps and Docker tooling to integrate with the QuantumZero identity platform. The SDKs abstract cryptographic operations and Decentralized Identity (DID) workflows, allowing partners to perform authentication, validate Verifiable Credentials, and interact with Zero-Knowledge Proof (ZKP) challenges using simple, well-documented functions.
 
 ## SDK Components
 
@@ -40,6 +40,19 @@ quantumzero_rust_sdk = { git = "https://github.com/CHATEAUFORGE-LLC/QuantumZero-
 ```
 
 [View Rust SDK Documentation →](./quantumzero_rust_sdk/README.md)
+
+## Reference Apps
+
+### Issuer App (`issuer_app`)
+- Web UI for DID creation, issuer onboarding, schema/cred-def staging, and issuance
+- ACA-Py issuer agent integration with endorser flow support
+- QR/OOB invitations for mobile wallet connections
+- Sends wallet telemetry to the Issuance API
+
+### Verifier App (`verifier_app`)
+- Web UI for proof requests and verification
+- ACA-Py verifier agent integration with QR deep links for mobile
+- Sends verifier telemetry to the Issuance API
 
 ## Interoperability
 
@@ -83,6 +96,7 @@ Both SDKs are designed to be **fully interoperable**:
 - **Hardware Key Support:** P-256 signature verification for Android StrongBox (Rust SDK)
 - **Cross-Platform:** Native performance on both Rust and Dart platforms
 - **Standardized API:** Consistent interface across languages
+- **Reference Apps:** Issuer + verifier portals with ACA-Py integration
 - **Well-Tested:** 26+ comprehensive tests and performance benchmarks
 
 ## Development Status
@@ -91,6 +105,34 @@ Both SDKs are designed to be **fully interoperable**:
 |-----------|--------|---------|
 | Dart SDK  | Stable | 1.0.0 |
 | Rust SDK  | Stable | 1.0.0 |
+| Issuer App | Preview | 0.1.0 |
+| Verifier App | Preview | 0.1.0 |
+
+## Local Dev Stack (Docker Compose)
+
+This repository includes a Docker Compose stack for the issuer/verifier apps, ACA-Py agents, and a tails server for revocation.
+
+**Prereqs:** QuantumZero Server running (Issuance API), Indy ledger network (`indy`), Docker.
+
+**Quick start:**
+```bash
+# Bash
+./deploy.sh
+# or
+docker compose up -d --build
+```
+
+**Access points:**
+- Issuer Portal: http://localhost:3030
+- Verifier Portal: http://localhost:3031
+- Issuer ACA-Py Admin: http://localhost:11001
+- Verifier ACA-Py Admin: http://localhost:11002
+- Tails Server: http://localhost:6543
+
+**Optional env vars:**
+- `QZ_PUBLIC_AGENT_URL` - public issuer agent URL for mobile connections
+- `QZ_PUBLIC_VERIFIER_URL` - public verifier agent URL for mobile connections
+- `QZ_MOBILE_APP_SCHEME` - deep link scheme (default `quantumzero`)
 
 ## Getting Started
 
