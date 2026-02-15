@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::time::Duration;
 
 /// Client for interacting with the issuer's own ACA-Py agent
 #[derive(Clone)]
@@ -80,6 +81,8 @@ pub struct ConnectionRecord {
     pub their_label: Option<String>,
     #[serde(default)]
     pub state: Option<String>,
+    #[serde(default)]
+    pub connection_protocol: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -98,6 +101,38 @@ pub struct CredentialAttribute {
     pub value: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CredentialExchangeRecord {
+    #[serde(default)]
+    pub cred_ex_id: Option<String>,
+    #[serde(default)]
+    pub state: Option<String>,
+    #[serde(default)]
+    pub cred_ex_record: Option<serde_json::Value>,
+    #[serde(default)]
+    pub indy: Option<IndyCredentialDetail>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IndyCredentialDetail {
+    #[serde(default)]
+    pub schema_id: Option<String>,
+    #[serde(default)]
+    pub cred_def_id: Option<String>,
+    #[serde(default)]
+    pub rev_reg_id: Option<String>,
+    #[serde(default)]
+    pub cred_rev_id: Option<String>,
+    #[serde(default)]
+    pub values: Option<serde_json::Value>,
+    #[serde(default)]
+    pub signature: Option<serde_json::Value>,
+    #[serde(default)]
+    pub signature_correctness_proof: Option<serde_json::Value>,
+    #[serde(default)]
+    pub witness: Option<serde_json::Value>,
+}
+
 impl AcaPyClient {
     pub fn new(admin_url: String) -> Self {
         Self {
@@ -106,8 +141,109 @@ impl AcaPyClient {
         }
     }
 
+    /// Delete a connection by connection_id
+    pub async fn delete_connection(&self, connection_id: &str) -> Result<()> {
+        let url = format!("{}/connections/{}", self.admin_url, connection_id);
+        
+        let response = self
+            .client
+            .delete(&url)
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await
+            .context("Failed to delete connection")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            tracing::warn!("Failed to delete connection {}: {} - {}", connection_id, status, error_text);
+        } else {
+            tracing::info!("Deleted connection: {}", connection_id);
+        }
+
+        Ok(())
+    }
+
+    /// Clean up old peer-to-peer (didexchange) connections to prevent duplicate connection errors
+    /// Only deletes didexchange protocol connections (mobile wallets)
+    /// Preserves: endorser, trustee, ledger, and server connections
+    pub async fn cleanup_old_connections(&self) -> Result<usize> {
+        tracing::info!("Cleaning up old peer-to-peer (didexchange) connections");
+        
+        let connections = match self.list_connections(None).await {
+            Ok(conns) => conns,
+            Err(e) => {
+                tracing::warn!("Failed to list connections for cleanup: {}", e);
+                return Ok(0);
+            }
+        };
+        
+        let mut deleted_count = 0;
+        
+        for conn in connections {
+            // CRITICAL: Only delete connections using didexchange protocol (peer-to-peer mobile wallets)
+            // This ensures we never touch endorser, trustee, ledger, or server connections
+            let conn_protocol = conn.connection_protocol.as_deref().unwrap_or("");
+            
+            // Skip if NOT a didexchange connection
+            if !conn_protocol.contains("didexchange") {
+                tracing::debug!(
+                    "Skipping non-didexchange connection: {} (protocol: {})",
+                    conn.connection_id,
+                    conn_protocol
+                );
+                continue;
+            }
+            
+            // Double-check by label to be extra safe
+            let their_label = conn.their_label.as_deref().unwrap_or("");
+            if their_label.to_lowercase().contains("endorser") 
+                || their_label.to_lowercase().contains("trustee")
+                || their_label.to_lowercase().contains("ledger")
+                || their_label.to_lowercase().contains("server") {
+                tracing::info!(
+                    "Skipping critical connection: {} (label: {})",
+                    conn.connection_id,
+                    their_label
+                );
+                continue;
+            }
+            
+            // Safe to delete - it's a peer-to-peer mobile wallet connection
+            tracing::info!(
+                "Deleting didexchange connection: {} (label: {})",
+                conn.connection_id,
+                their_label
+            );
+            
+            match self.delete_connection(&conn.connection_id).await {
+                Ok(_) => deleted_count += 1,
+                Err(e) => {
+                    tracing::warn!("Failed to delete connection {}: {}", conn.connection_id, e);
+                    // Continue with other connections even if one fails
+                }
+            }
+        }
+        
+        if deleted_count > 0 {
+            tracing::info!("Cleanup complete: deleted {} didexchange connections", deleted_count);
+        } else {
+            tracing::debug!("No didexchange connections to clean up");
+        }
+        
+        Ok(deleted_count)
+    }
+
     /// Create an out-of-band invitation for wallet connection
+    /// Cleans up old peer-to-peer connections first to prevent duplicate connection errors
     pub async fn create_oob_invitation(&self, label: Option<&str>) -> Result<OobInvitationResponse> {
+        // Clean up old didexchange connections to ensure only ONE peer-to-peer connection at a time
+        // This prevents "Multiple ConnRecord" errors in ACA-Py when the same mobile wallet reconnects
+        if let Err(e) = self.cleanup_old_connections().await {
+            tracing::warn!("Connection cleanup failed (non-fatal): {}", e);
+            // Continue anyway - cleanup failure shouldn't block invitation creation
+        }
+        
         let url = format!("{}/out-of-band/create-invitation?auto_accept=true", self.admin_url);
         let body = if let Some(label) = label {
             json!({
@@ -126,6 +262,7 @@ impl AcaPyClient {
             .client
             .post(&url)
             .json(&body)
+            .timeout(Duration::from_secs(10))
             .send()
             .await
             .context("Failed to create OOB invitation")?;
@@ -234,6 +371,7 @@ impl AcaPyClient {
             .client
             .post(&url)
             .json(&body)
+            .timeout(Duration::from_secs(30))
             .send()
             .await
             .context("Failed to send credential offer")?;
@@ -250,6 +388,91 @@ impl AcaPyClient {
             .context("Failed to parse credential offer response")?;
 
         Ok(result)
+    }
+
+    /// Get credential exchange record by ID to retrieve the actual issued credential
+    pub async fn get_credential_exchange(&self, cred_ex_id: &str) -> Result<CredentialExchangeRecord> {
+        let url = format!("{}/issue-credential-2.0/records/{}", self.admin_url, cred_ex_id);
+
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .context("Failed to get credential exchange record")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            anyhow::bail!("Failed to get credential exchange: {} - {}", status, error_text);
+        }
+
+        let result: CredentialExchangeRecord = response
+            .json()
+            .await
+            .context("Failed to parse credential exchange record")?;
+
+        Ok(result)
+    }
+
+    /// Issue credential directly using holder's link secret (bypassing protocol)
+    /// This generates the complete AnonCreds credential with cryptographic proof immediately
+    pub async fn issue_credential_with_link_secret(
+        &self,
+        cred_def_id: &str,
+        attributes: Vec<CredentialAttribute>,
+        link_secret: &str,
+    ) -> Result<serde_json::Value> {
+        // Use ACA-Py's W3C VC issuance which generates complete AnonCreds credentials
+        let url = format!("{}/issue-credential/create-offer", self.admin_url);
+
+        // First get the schema_id for this cred_def
+        let cred_def_url = format!("{}/credential-definitions/{}", self.admin_url, cred_def_id);
+        let cred_def_response = self
+            .client
+            .get(&cred_def_url)
+            .send()
+            .await
+            .context("Failed to get credential definition")?;
+            
+        let cred_def_json: serde_json::Value = cred_def_response
+            .json()
+            .await
+            .context("Failed to parse credential definition")?;
+            
+        let schema_id = cred_def_json["credential_definition"]["schemaId"]
+            .as_str()
+            .unwrap_or("");
+
+        // Create credential offer which contains the cryptographic material
+        let body = json!({
+            "cred_def_id": cred_def_id,
+            "credential_preview": {
+                "@type": "issue-credential/2.0/credential-preview",
+                "attributes": attributes
+            }
+        });
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .context("Failed to create credential offer")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            anyhow::bail!("Failed to create credential offer: {} - {}", status, error_text);
+        }
+
+        let offer_result: serde_json::Value = response
+            .json()
+            .await
+            .context("Failed to parse create offer response")?;
+
+        Ok(offer_result)
     }
 
     /// Send a custom message over an existing connection

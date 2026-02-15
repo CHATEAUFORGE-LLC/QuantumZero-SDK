@@ -20,7 +20,7 @@ COPY verifier_app/static ./verifier_app/static
 RUN cargo build --release --package issuer_app
 
 # Runtime stage
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 RUN apt-get update && apt-get install -y \
     ca-certificates \

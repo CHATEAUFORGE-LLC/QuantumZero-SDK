@@ -322,14 +322,7 @@
 
         <div class="form-group">
           <label for="requested-predicates">Requested Predicates (JSON) - Optional</label>
-          <textarea id="requested-predicates">{
-  "pred_age": {
-    "name": "age",
-    "p_type": ">=",
-    "p_value": 18,
-    "restrictions": []
-  }
-}</textarea>
+          <textarea id="requested-predicates" placeholder="Leave empty for self-attested presentations">{}</textarea>
         </div>
 
         <button onclick="sendProofRequest()" id="request-button" disabled>Send Proof Request</button>

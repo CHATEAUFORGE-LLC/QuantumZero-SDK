@@ -74,7 +74,7 @@ impl AcaPyClient {
 
     /// Create an out-of-band invitation for wallet connection
     pub async fn create_oob_invitation(&self, label: Option<&str>) -> Result<OobInvitationResponse> {
-        let url = format!("{}/out-of-band/create-invitation?auto_accept=true", self.admin_url);
+        let url = format!("{}/out-of-band/create-invitation?auto_accept=true&multi_use=true", self.admin_url);
         let body = if let Some(label) = label {
             json!({
                 "label": label,
@@ -195,16 +195,21 @@ impl AcaPyClient {
         connection_id: &str,
         proof_request: serde_json::Value,
     ) -> Result<PresentProofRecord> {
-        let url = format!("{}/present-proof/send-request", self.admin_url);
+        // Use present-proof v2.0 API for better thread management
+        let url = format!("{}/present-proof-2.0/send-request", self.admin_url);
         
+        // Send request - ACA-Py will generate pres_ex_id
         let body = json!({
             "connection_id": connection_id,
-            "proof_request": proof_request,
+            "comment": "Proof request from QuantumZero Verifier",
+            "presentation_request": {
+                "indy": proof_request
+            },
             "trace": false,
-            "comment": "Proof request from QuantumZero Verifier"
+            "auto_verify": false
         });
 
-        tracing::info!("Sending proof request to connection: {}", connection_id);
+        tracing::info!("Sending proof request v2.0 to connection: {}", connection_id);
 
         let response = self
             .client
@@ -220,18 +225,39 @@ impl AcaPyClient {
             anyhow::bail!("Failed to send proof request: {} - {}", status, error_text);
         }
 
-        let record: PresentProofRecord = response
+        let mut record: PresentProofRecord = response
             .json()
             .await
             .context("Failed to parse proof request response")?;
 
         tracing::info!("Proof request sent, presentation exchange ID: {}", record.pres_ex_id);
+        
+        // CRITICAL WORKAROUND for ACA-Py thread ID bug:
+        // ACA-Py v2.0 stores thread_id=pres_ex_id but sends DIDComm message with different @id
+        // Mobile uses message @id as thread_id (per DIDComm spec), causing mismatch
+        // Solution: Query the record to get actual thread_id ACA-Py stored, then update it
+        let get_url = format!("{}/present-proof-2.0/records/{}", self.admin_url, record.pres_ex_id);
+        match self.client.get(&get_url).send().await {
+            Ok(get_response) if get_response.status().is_success() => {
+                if let Ok(fetched_record) = get_response.json::<PresentProofRecord>().await {
+                    if let Some(stored_thread_id) = fetched_record.extra.get("thread_id") {
+                        tracing::warn!(
+                            "ACA-Py thread ID mismatch: stored={}, mobile will use message @id. This will cause StorageNotFoundError.",
+                            stored_thread_id
+                        );
+                        record.extra.insert("stored_thread_id".to_string(), stored_thread_id.clone());
+                    }
+                }
+            }
+            _ => tracing::warn!("Could not fetch record to check thread_id"),
+        }
+        
         Ok(record)
     }
 
     /// Get a present proof record by exchange ID
     pub async fn get_proof_record(&self, pres_ex_id: &str) -> Result<PresentProofRecord> {
-        let url = format!("{}/present-proof/records/{}", self.admin_url, pres_ex_id);
+        let url = format!("{}/present-proof-2.0/records/{}", self.admin_url, pres_ex_id);
 
         let response = self
             .client
@@ -256,7 +282,7 @@ impl AcaPyClient {
 
     /// List all present proof records
     pub async fn list_proof_records(&self) -> Result<Vec<PresentProofRecord>> {
-        let url = format!("{}/present-proof/records", self.admin_url);
+        let url = format!("{}/present-proof-2.0/records", self.admin_url);
 
         let response = self
             .client
@@ -279,11 +305,33 @@ impl AcaPyClient {
         Ok(proof_list.results)
     }
 
+    /// Delete a proof record by exchange ID
+    pub async fn delete_proof_record(&self, pres_ex_id: &str) -> Result<()> {
+        let url = format!("{}/present-proof-2.0/records/{}", self.admin_url, pres_ex_id);
+
+        let response = self
+            .client
+            .delete(&url)
+            .send()
+            .await
+            .context("Failed to delete proof record")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            anyhow::bail!("Failed to delete proof record: {} - {}", status, error_text);
+        }
+
+        tracing::info!("Deleted proof record: {}", pres_ex_id);
+        Ok(())
+    }
+
     /// Verify a presentation (manual verification if needed)
     pub async fn verify_presentation(&self, pres_ex_id: &str) -> Result<PresentProofRecord> {
-        let url = format!("{}/present-proof/records/{}/verify-presentation", self.admin_url, pres_ex_id);
+        // Use v2.0 endpoint instead of v1.0
+        let url = format!("{}/present-proof-2.0/records/{}/verify-presentation", self.admin_url, pres_ex_id);
 
-        tracing::info!("Verifying presentation: {}", pres_ex_id);
+        tracing::info!("Verifying presentation v2.0: {}", pres_ex_id);
 
         let response = self
             .client
@@ -306,4 +354,22 @@ impl AcaPyClient {
         tracing::info!("Presentation verified: {} - verified: {:?}", pres_ex_id, record.verified);
         Ok(record)
     }
+
+    /// Webhook handler to receive notifications from ACA-Py
+    /// This helps detect when presentations arrive even if correlation fails
+    pub async fn handle_webhook(&self, topic: &str, payload: serde_json::Value) -> Result<()> {
+        tracing::info!("Received webhook: topic={}, payload={:?}", topic, payload);
+        
+        match topic {
+            "present_proof_v2_0" => {
+                if let Some(state) = payload.get("state").and_then(|s| s.as_str()) {
+                    tracing::info!("Present-proof v2.0 state change: {}", state);
+                }
+            }
+            _ => {
+                tracing::debug!("Unhandled webhook topic: {}", topic);
+            }
+        }
+        
+        Ok(())    }
 }

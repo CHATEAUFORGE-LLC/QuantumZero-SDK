@@ -1,4 +1,5 @@
 mod crypto_core;
+pub mod anoncreds_ffi;
 
 pub use crypto_core::{CryptoCore, KeyPair};
 

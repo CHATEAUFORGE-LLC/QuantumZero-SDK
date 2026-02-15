@@ -5,6 +5,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
+use std::time::Duration;
 
 /// API client for QuantumZero server interactions
 #[derive(Clone)]
@@ -168,8 +169,7 @@ impl ApiClient {
             .client
             .post(&url)
             .headers(headers)
-            .body(body)
-            .send()
+            .body(body)            .timeout(Duration::from_secs(10))            .send()
             .await
             .context("Failed to send issuer request")?;
 
@@ -203,8 +203,7 @@ impl ApiClient {
             .client
             .post(&url)
             .headers(headers)
-            .body(body)
-            .send()
+            .body(body)            .timeout(Duration::from_secs(10))            .send()
             .await
             .context("Failed to send schema request")?;
 
@@ -238,8 +237,7 @@ impl ApiClient {
             .client
             .post(&url)
             .headers(headers)
-            .body(body)
-            .send()
+            .body(body)            .timeout(Duration::from_secs(10))            .send()
             .await
             .context("Failed to send cred def request")?;
 
@@ -309,6 +307,7 @@ impl ApiClient {
             .post(&url)
             .headers(headers)
             .body(body)
+            .timeout(Duration::from_secs(5))
             .send()
             .await
             .context("Failed to send wallet telemetry")?;
@@ -334,6 +333,7 @@ impl ApiClient {
         let response = self
             .client
             .get(&url)
+            .timeout(Duration::from_secs(10))
             .send()
             .await
             .context("Failed to query ledger")?;

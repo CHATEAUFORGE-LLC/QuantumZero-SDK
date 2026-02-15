@@ -6,7 +6,13 @@ authors = ["ChateauForge LLC"]
 description = "A Rust SDK for the QuantumZero identity platform - issuer integration"
 license = "Private"
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
+# AnonCreds for ZKP proofs and credentials  
+anoncreds = { git = "https://github.com/hyperledger/anoncreds-rs", branch = "main", features = ["vendored"] }
+
 # Cryptographic primitives
 ed25519-dalek = { version = "2.2", features = ["rand_core"] }
 sha2 = "0.10"

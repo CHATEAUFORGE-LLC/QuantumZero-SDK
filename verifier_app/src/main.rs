@@ -5,14 +5,17 @@ use qrcode::QrCode;
 use qrcode::render::svg;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
-use url::Url;
 use uuid::Uuid;
 
 mod acapy_client;
 mod telemetry_client;
+mod presentation_storage;
+mod presentation_correlator;
 
 use acapy_client::AcaPyClient;
 use telemetry_client::{TelemetryClient, TelemetryEvent};
+use presentation_storage::PresentationStorage;
+use presentation_correlator::PresentationCorrelator;
 
 #[derive(Clone)]
 struct AppState {
@@ -20,6 +23,8 @@ struct AppState {
     acapy_client: Arc<AcaPyClient>,
     telemetry_client: Arc<TelemetryClient>,
     mobile_app_scheme: String,
+    presentation_storage: PresentationStorage,
+    has_active_connections: Arc<Mutex<bool>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -102,6 +107,30 @@ async fn create_invitation(
         .and_then(|f| f.label.clone())
         .unwrap_or_else(|| "QuantumZero Verifier".to_string());
 
+    // Clean up all existing connections before creating new invitation
+    // This ensures multi-use invitations work correctly
+    match state.acapy_client.list_connections(None).await {
+        Ok(connections) => {
+            if !connections.is_empty() {
+                tracing::info!("Cleaning up {} existing connections before creating invitation", connections.len());
+                for conn in connections {
+                    if let Err(e) = state.acapy_client.delete_connection(&conn.connection_id).await {
+                        tracing::warn!("Failed to delete connection {}: {}", conn.connection_id, e);
+                    } else {
+                        tracing::info!("Deleted connection: {}", conn.connection_id);
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Could not list connections for cleanup: {}", e);
+        }
+    }
+    
+    // Enable correlator monitoring when invitation is created
+    *state.has_active_connections.lock().unwrap() = true;
+    tracing::info!("Enabled presentation correlator monitoring");
+
     match state.acapy_client.create_oob_invitation(Some(&label)).await {
         Ok(mut invitation) => {
             tracing::info!("Created verifier invitation: {:?}", invitation.invi_msg_id);
@@ -168,6 +197,52 @@ async fn create_invitation(
     }
 }
 
+async fn cleanup_connections(state: web::Data<AppState>) -> impl Responder {
+    match state.acapy_client.list_connections(None).await {
+        Ok(connections) => {
+            if connections.is_empty() {
+                tracing::info!("No connections to clean up");
+                // Disable correlator monitoring when no connections
+                *state.has_active_connections.lock().unwrap() = false;
+                tracing::info!("Disabled presentation correlator monitoring");
+                return HttpResponse::Ok().json(serde_json::json!({
+                    "success": true,
+                    "message": "No connections to clean up",
+                    "deleted_count": 0
+                }));
+            }
+
+            tracing::info!("Cleaning up {} existing connections", connections.len());
+            let mut deleted_count = 0;
+            for conn in connections {
+                if let Err(e) = state.acapy_client.delete_connection(&conn.connection_id).await {
+                    tracing::warn!("Failed to delete connection {}: {}", conn.connection_id, e);
+                } else {
+                    tracing::info!("Deleted connection: {}", conn.connection_id);
+                    deleted_count += 1;
+                }
+            }
+            
+            // Disable correlator monitoring after cleanup
+            *state.has_active_connections.lock().unwrap() = false;
+            tracing::info!("Disabled presentation correlator monitoring");
+            
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": true,
+                "message": format!("Cleaned up {} connections", deleted_count),
+                "deleted_count": deleted_count
+            }))
+        }
+        Err(err) => {
+            tracing::error!("Failed to list connections for cleanup: {}", err);
+            HttpResponse::InternalServerError().json(serde_json::json!({
+                "success": false,
+                "error": format!("Failed to cleanup connections: {}", err)
+            }))
+        }
+    }
+}
+
 async fn list_connections(state: web::Data<AppState>) -> impl Responder {
     match state.acapy_client.list_connections(None).await {
         Ok(connections) => {
@@ -210,6 +285,25 @@ async fn send_proof_request(
     state: web::Data<AppState>,
     form: web::Json<SendProofRequestForm>,
 ) -> impl Responder {
+    // Clean up old proof records to avoid stale state
+    match state.acapy_client.list_proof_records().await {
+        Ok(records) => {
+            if !records.is_empty() {
+                tracing::info!("Cleaning up {} existing proof records", records.len());
+                for record in records {
+                    if let Err(e) = state.acapy_client.delete_proof_record(&record.pres_ex_id).await {
+                        tracing::warn!("Failed to delete proof record {}: {}", record.pres_ex_id, e);
+                    } else {
+                        tracing::info!("Deleted proof record: {}", record.pres_ex_id);
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Could not list proof records for cleanup: {}", e);
+        }
+    }
+
     // Generate a numeric nonce (ACA-Py requires positive numeric string without leading zeros)
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -327,6 +421,157 @@ async fn list_proof_records(state: web::Data<AppState>) -> impl Responder {
     }
 }
 
+#[derive(Deserialize)]
+struct SubmitPresentationRequest {
+    presentation: serde_json::Value,
+    signature: String,
+    verkey: String,
+}
+
+async fn submit_presentation(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    form: web::Json<SubmitPresentationRequest>,
+) -> impl Responder {
+    tracing::info!("Received presentation submission");
+
+    // Store presentation with 5 minute TTL
+    let presentation_id = state.presentation_storage.store(
+        form.presentation.clone(),
+        form.signature.clone(),
+        form.verkey.clone(),
+        300, // 5 minutes
+    );
+
+    // Generate retrieval URL - use the actual verifier app port
+    let connection_info = req.connection_info();
+    let host = req
+        .headers()
+        .get("x-forwarded-host")
+        .or_else(|| req.headers().get("host"))
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("localhost:3031");
+    
+    let retrieval_url = format!("{}://{}/api/presentations/{}", 
+        connection_info.scheme(), 
+        host, 
+        presentation_id
+    );
+
+    tracing::info!("Presentation stored with ID: {} - URL: {}", presentation_id, retrieval_url);
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "presentation_id": presentation_id,
+        "retrieval_url": retrieval_url,
+        "expires_in": 300
+    }))
+}
+
+async fn get_presentation(
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let presentation_id = path.into_inner();
+
+    tracing::info!("Fetching presentation: {}", presentation_id);
+
+    match state.presentation_storage.get(&presentation_id) {
+        Some(stored) => {
+            tracing::info!("Presentation retrieved successfully");
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": true,
+                "presentation": stored.presentation,
+                "signature": stored.signature,
+                "verkey": stored.verkey,
+                "created_at": stored.created_at,
+                "expires_at": stored.expires_at
+            }))
+        }
+        None => {
+            tracing::warn!("Presentation not found or expired: {}", presentation_id);
+            HttpResponse::NotFound().json(serde_json::json!({
+                "success": false,
+                "error": "Presentation not found or expired"
+            }))
+        }
+    }
+}
+
+/// Webhook handler for ACA-Py events
+async fn acapy_webhook(
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
+    let topic = path.into_inner();
+    
+    tracing::info!("Received ACA-Py webhook: topic={}", topic);
+    
+    if let Err(e) = state.acapy_client.handle_webhook(&topic, body.into_inner()).await {
+        tracing::error!("Webhook processing error: {}", e);
+    }
+    
+    HttpResponse::Ok().json(serde_json::json!({"success": true}))
+}
+
+/// Manual processing endpoint for stuck presentations
+async fn process_pending_presentation(
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let pres_ex_id = path.into_inner();
+    
+    tracing::info!("Manually processing presentation: {}", pres_ex_id);
+    
+    // Get the current proof record
+    let record = match state.acapy_client.get_proof_record(&pres_ex_id).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("Failed to get proof record: {}", e);
+            return HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": format!("Failed to get proof record: {}", e)
+            }));
+        }
+    };
+    
+    tracing::info!("Current proof record state: {}", record.state);
+    
+    // If still in request-sent state, check if we can trigger verification
+    if record.state == "request-sent" {
+        tracing::info!("Proof exchange stuck in request-sent - checking for received presentation");
+        
+        // Try to verify anyway - might trigger state update if presentation arrived
+        match state.acapy_client.verify_presentation(&pres_ex_id).await {
+            Ok(updated) => {
+                tracing::info!("Manual verification triggered - new state: {}", updated.state);
+                return HttpResponse::Ok().json(serde_json::json!({
+                    "success": true,
+                    "state": updated.state,
+                    "verified": updated.verified,
+                    "message": "Verification triggered successfully"
+                }));
+            }
+            Err(e) => {
+                tracing::warn!("Manual verification failed: {}", e);
+                return HttpResponse::Ok().json(serde_json::json!({
+                    "success": false,
+                    "state": record.state,
+                    "message": format!("Presentation not yet received or verification failed: {}", e)
+                }));
+            }
+        }
+    }
+    
+    // Already processed or in another state
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "state": record.state,
+        "verified": record.verified,
+        "message": "Proof exchange is not stuck"
+    }))
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt()
@@ -357,7 +602,17 @@ async fn main() -> std::io::Result<()> {
         acapy_client: Arc::new(AcaPyClient::new(acapy_admin_url)),
         telemetry_client: Arc::new(TelemetryClient::new(issuance_api_url)),
         mobile_app_scheme,
+        presentation_storage: PresentationStorage::new(),
+        has_active_connections: Arc::new(Mutex::new(false)),
     };
+
+    // Start the presentation correlator background task
+    let correlator = Arc::new(PresentationCorrelator::new(
+        state.acapy_client.clone(),
+        state.has_active_connections.clone(),
+    ));
+    correlator.start_monitoring();
+    tracing::info!("Started presentation correlation monitor (will activate on invitation creation)");
 
     tracing::info!("Starting verifier app on {}", bind_address);
 
@@ -369,9 +624,14 @@ async fn main() -> std::io::Result<()> {
             .route("/api/verifier-info", web::get().to(get_verifier_info))
             .route("/api/create-invitation", web::post().to(create_invitation))
             .route("/api/connections", web::get().to(list_connections))
+            .route("/api/connections/cleanup", web::delete().to(cleanup_connections))
             .route("/api/send-proof-request", web::post().to(send_proof_request))
             .route("/api/proof-records", web::get().to(list_proof_records))
             .route("/api/proof-records/{pres_ex_id}", web::get().to(get_proof_record))
+            .route("/api/presentations", web::post().to(submit_presentation))
+            .route("/api/presentations/{id}", web::get().to(get_presentation))
+            .route("/api/process-presentation/{pres_ex_id}", web::post().to(process_pending_presentation))
+            .route("/webhooks/topic/{topic}/", web::post().to(acapy_webhook))
     })
     .bind(bind_address)?
     .run()

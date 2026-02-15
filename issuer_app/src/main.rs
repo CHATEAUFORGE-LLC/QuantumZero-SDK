@@ -1604,6 +1604,16 @@ async fn issue_wallet_credential(
 
     match offer_result {
         Ok(response) => {
+            let cred_ex_id = response.cred_ex_id.clone().unwrap_or_default();
+            
+            tracing::info!("Credential offer sent, waiting for holder to send request");
+            tracing::info!("ACA-Py will auto-issue credential when request is received (auto_issue=true)");
+            
+            // Don't send custom credential message - let ACA-Py protocol complete
+            // The mobile wallet will send a credential request
+            // ACA-Py will automatically issue with auto_issue=true
+            // Then mobile will receive the fully issued credential with proof material
+
             let (schema_id, issuer_alias) = {
                 let info = state.issuer_info.lock().unwrap();
                 let schema_id = info
@@ -1614,44 +1624,6 @@ async fn issue_wallet_credential(
                 let alias = info.alias.clone();
                 (schema_id, alias)
             };
-
-            let credential_payload = serde_json::json!({
-                "id": format!("urn:uuid:{}", Uuid::new_v4()),
-                "schema_id": schema_id,
-                "cred_def_id": form.cred_def_id.clone(),
-                "issuer": issuer_alias.unwrap_or_else(|| "Issuer".to_string()),
-                "issuer_did": issuer_did,
-                "attributes": credential_values,
-            });
-
-            let attachment_json = serde_json::to_string(&credential_payload)
-                .unwrap_or_else(|_| "{}".to_string());
-            let attachment_b64 = URL_SAFE_NO_PAD.encode(attachment_json);
-
-            let issue_message = serde_json::json!({
-                "@id": Uuid::new_v4().to_string(),
-                "@type": "https://didcomm.org/issue-credential/2.0/issue-credential",
-                "~thread": {
-                    "thid": response.cred_ex_id.clone().unwrap_or_else(|| Uuid::new_v4().to_string())
-                },
-                "credentials~attach": [
-                    {
-                        "@id": "cred-0",
-                        "mime-type": "application/json",
-                        "data": {
-                            "base64": attachment_b64
-                        }
-                    }
-                ]
-            });
-
-            if let Err(err) = state
-                .acapy_client
-                .send_connection_message(&form.connection_id, &issue_message)
-                .await
-            {
-                tracing::warn!("Failed to send direct issue message: {}", err);
-            }
 
             submit_wallet_telemetry(
                 state.get_ref(),
