@@ -87,4 +87,58 @@ impl PresentationStorage {
     pub fn count(&self) -> usize {
         self.presentations.lock().unwrap().len()
     }
+
+    /// Store a verified proof record for UI display
+    pub fn store_proof_record(
+        &self,
+        record: serde_json::Value,
+        ttl_seconds: u64,
+    ) -> String {
+        let id = record
+            .get("pres_ex_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_else(|| "unknown")
+            .to_string();
+        
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let stored = StoredPresentation {
+            id: id.clone(),
+            presentation: record,
+            signature: String::new(), // Not needed for proof records
+            verkey: String::new(), // Not needed for proof records
+            created_at: now,
+            expires_at: now + ttl_seconds,
+        };
+
+        let mut presentations = self.presentations.lock().unwrap();
+        presentations.insert(id.clone(), stored);
+
+        // Clean up expired presentations
+        self.cleanup_expired(&mut presentations, now);
+
+        id
+    }
+
+    /// Get all active (non-expired) proof records
+    pub fn list_all(&self) -> Vec<serde_json::Value> {
+        let mut presentations = self.presentations.lock().unwrap();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        // Clean up expired presentations
+        self.cleanup_expired(&mut presentations, now);
+
+        // Return all non-expired presentations
+        presentations
+            .values()
+            .filter(|p| p.expires_at > now)
+            .map(|p| p.presentation.clone())
+            .collect()
+    }
 }

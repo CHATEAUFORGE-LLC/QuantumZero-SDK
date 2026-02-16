@@ -42,6 +42,31 @@ impl PresentationCorrelator {
         let records = self.acapy_client.list_proof_records().await?;
 
         for record in records {
+            // Handle presentation-received state - automatically verify
+            if record.state == "presentation-received" {
+                tracing::info!(
+                    "Presentation received for exchange {}, triggering verification",
+                    record.pres_ex_id
+                );
+                match self.acapy_client.verify_presentation(&record.pres_ex_id).await {
+                    Ok(verified_record) => {
+                        tracing::info!(
+                            "Presentation {} verified: {:?}",
+                            record.pres_ex_id,
+                            verified_record.verified
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to verify presentation {}: {}",
+                            record.pres_ex_id,
+                            e
+                        );
+                    }
+                }
+                continue;
+            }
+            
             // Only process exchanges stuck in request-sent state
             if record.state != "request-sent" {
                 continue;

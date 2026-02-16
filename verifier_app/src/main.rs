@@ -246,30 +246,12 @@ async fn cleanup_connections(state: web::Data<AppState>) -> impl Responder {
 async fn list_connections(state: web::Data<AppState>) -> impl Responder {
     match state.acapy_client.list_connections(None).await {
         Ok(connections) => {
-            // Auto-cleanup: Keep only the most recent connection
-            if connections.len() > 1 {
-                tracing::info!("Auto-cleanup: {} connections found, keeping only 1 most recent", connections.len());
-                let to_delete = &connections[1..];
-                for conn in to_delete {
-                    if let Err(e) = state.acapy_client.delete_connection(&conn.connection_id).await {
-                        tracing::warn!("Failed to cleanup connection {}: {}", conn.connection_id, e);
-                    } else {
-                        tracing::info!("Deleted old connection: {}", conn.connection_id);
-                    }
-                }
-                
-                // Return only the kept connection
-                let kept_connections: Vec<_> = connections.into_iter().take(1).collect();
-                HttpResponse::Ok().json(serde_json::json!({
-                    "success": true,
-                    "connections": kept_connections
-                }))
-            } else {
-                HttpResponse::Ok().json(serde_json::json!({
-                    "success": true,
-                    "connections": connections
-                }))
-            }
+            // Note: Auto-cleanup disabled to prevent deleting connections during active presentation exchanges
+            // Use /api/connections/cleanup endpoint to manually cleanup old connections
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": true,
+                "connections": connections
+            }))
         }
         Err(err) => {
             tracing::error!("Failed to list connections: {}", err);
@@ -285,18 +267,30 @@ async fn send_proof_request(
     state: web::Data<AppState>,
     form: web::Json<SendProofRequestForm>,
 ) -> impl Responder {
-    // Clean up old proof records to avoid stale state
+    // Clean up ONLY stuck/failed proof records, preserve verified ones
     match state.acapy_client.list_proof_records().await {
         Ok(records) => {
-            if !records.is_empty() {
-                tracing::info!("Cleaning up {} existing proof records", records.len());
-                for record in records {
+            let stuck_records: Vec<_> = records.iter()
+                .filter(|r| r.state == "request-sent" || r.state == "abandoned" || r.state == "declined")
+                .collect();
+            
+            if !stuck_records.is_empty() {
+                tracing::info!("Cleaning up {} stuck/failed proof records", stuck_records.len());
+                for record in stuck_records {
                     if let Err(e) = state.acapy_client.delete_proof_record(&record.pres_ex_id).await {
                         tracing::warn!("Failed to delete proof record {}: {}", record.pres_ex_id, e);
                     } else {
-                        tracing::info!("Deleted proof record: {}", record.pres_ex_id);
+                        tracing::info!("Deleted stuck proof record: {}", record.pres_ex_id);
                     }
                 }
+            }
+            
+            // Log count of preserved verified records
+            let verified_count = records.iter()
+                .filter(|r| r.state == "done" || r.state == "verified" || r.verified == Some("true".to_string()))
+                .count();
+            if verified_count > 0 {
+                tracing::info!("Preserving {} verified proof records", verified_count);
             }
         }
         Err(e) => {
@@ -357,6 +351,22 @@ async fn get_proof_record(
 ) -> impl Responder {
     let pres_ex_id = path.into_inner();
 
+    // First, try to get from cache (persists after ACA-Py auto-cleanup)
+    let cached_records = state.presentation_storage.list_all();
+    if let Some(cached_record) = cached_records.iter().find(|r| {
+        r.get("pres_ex_id")
+            .and_then(|v| v.as_str())
+            .map(|id| id == pres_ex_id)
+            .unwrap_or(false)
+    }) {
+        tracing::info!("📦 Returning cached proof record: {}", pres_ex_id);
+        return HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "record": cached_record
+        }));
+    }
+
+    // If not in cache, try ACA-Py (for fresh/in-progress records)
     match state.acapy_client.get_proof_record(&pres_ex_id).await {
         Ok(record) => {
             // If presentation is verified, submit telemetry
@@ -378,13 +388,27 @@ async fn get_proof_record(
             }))
         }
         Err(err) => {
-            tracing::error!("Failed to get proof record: {}", err);
-            HttpResponse::InternalServerError().json(serde_json::json!({
+            tracing::error!("Failed to get proof record from ACA-Py: {}", err);
+            HttpResponse::Ok().json(serde_json::json!({
                 "success": false,
                 "error": format!("Failed to get proof record: {}", err)
             }))
         }
     }
+}
+
+async fn list_cached_presentations(
+    state: web::Data<AppState>,
+) -> impl Responder {
+    let cached_presentations = state.presentation_storage.list_all();
+    
+    tracing::info!("Returning {} cached verified presentations", cached_presentations.len());
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "records": cached_presentations,
+        "count": cached_presentations.len()
+    }))
 }
 
 async fn list_proof_records(state: web::Data<AppState>) -> impl Responder {
@@ -508,8 +532,25 @@ async fn acapy_webhook(
     
     tracing::info!("Received ACA-Py webhook: topic={}", topic);
     
-    if let Err(e) = state.acapy_client.handle_webhook(&topic, body.into_inner()).await {
-        tracing::error!("Webhook processing error: {}", e);
+    match state.acapy_client.handle_webhook(&topic, body.into_inner()).await {
+        Ok(payload) => {
+            // Store ALL presentation results (pass or fail) for UI display
+            if topic == "present_proof_v2_0" {
+                if let Some(state_str) = payload.get("state").and_then(|s| s.as_str()) {
+                    // Store ALL presentations in done state (whether verified or failed)
+                    if state_str == "done" || state_str == "verified" || state_str == "presentation-received" {
+                        let pres_ex_id = state.presentation_storage.store_proof_record(
+                            payload.clone(),
+                            3600 * 24, // 24 hours TTL
+                        );
+                        tracing::info!("✅ Stored verified presentation in browser cache: {}", pres_ex_id);
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!("Webhook processing error: {}", e);
+        }
     }
     
     HttpResponse::Ok().json(serde_json::json!({"success": true}))
@@ -627,6 +668,7 @@ async fn main() -> std::io::Result<()> {
             .route("/api/connections/cleanup", web::delete().to(cleanup_connections))
             .route("/api/send-proof-request", web::post().to(send_proof_request))
             .route("/api/proof-records", web::get().to(list_proof_records))
+            .route("/api/proof-records/cached", web::get().to(list_cached_presentations))
             .route("/api/proof-records/{pres_ex_id}", web::get().to(get_proof_record))
             .route("/api/presentations", web::post().to(submit_presentation))
             .route("/api/presentations/{id}", web::get().to(get_presentation))

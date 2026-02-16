@@ -312,17 +312,20 @@
   "attr_name": {
     "name": "name",
     "restrictions": []
-  },
-  "attr_dob": {
-    "name": "dateOfBirth",
-    "restrictions": []
   }
 }</textarea>
         </div>
 
         <div class="form-group">
           <label for="requested-predicates">Requested Predicates (JSON) - Optional</label>
-          <textarea id="requested-predicates" placeholder="Leave empty for self-attested presentations">{}</textarea>
+          <textarea id="requested-predicates" placeholder="Leave empty for self-attested presentations">{
+  "pred_age_over_18": {
+    "name": "age",
+    "p_type": ">=",
+    "p_value": 18,
+    "restrictions": []
+  }
+}</textarea>
         </div>
 
         <button onclick="sendProofRequest()" id="request-button" disabled>Send Proof Request</button>
@@ -515,14 +518,24 @@
       const listDiv = document.getElementById('proof-records-list');
       
       try {
-        const response = await fetch('/api/proof-records');
+        // Fetch from cached presentations endpoint (persists across ACA-Py record deletions)
+        const response = await fetch('/api/proof-records/cached');
         const data = await response.json();
         
         if (data.success && data.records.length > 0) {
           listDiv.innerHTML = data.records.map(record => {
-            const isVerified = record.state === 'verified' || record.state === 'presentation_received';
+            const isDone = record.state === 'done' || record.state === 'verified' || record.state === 'presentation_received';
             const verifiedStatus = record.verified === 'true';
-            const cssClass = isVerified && verifiedStatus ? 'verified' : (record.state === 'request_sent' ? '' : 'failed');
+            
+            // Check for warnings vs errors
+            const verifiedMsgs = record.verified_msgs || [];
+            const warnings = verifiedMsgs.filter(msg => msg === 'RMV_GLB_NRI');
+            const errors = verifiedMsgs.filter(msg => msg !== 'RMV_GLB_NRI');
+            const hasOnlyWarnings = errors.length === 0 && warnings.length > 0;
+            
+            // Determine overall status
+            const effectivelyVerified = verifiedStatus || (isDone && hasOnlyWarnings);
+            const cssClass = effectivelyVerified ? 'verified' : (isDone ? 'failed' : '');
             
             // Extract revealed attributes if presentation exists
             let revealedAttrs = '';
@@ -548,14 +561,24 @@
               }
             }
             
+            // Build warnings/errors display
+            let warningsHtml = '';
+            if (warnings.length > 0) {
+              warningsHtml = `<div style="margin-top: 8px; padding: 8px; background-color: #fffbeb; border-left: 3px solid #f59e0b; border-radius: 4px;"><strong>⚠️ Warnings:</strong><ul style="margin: 4px 0; padding-left: 20px; font-size: 0.9em;">${warnings.map(w => `<li>Non-revocation interval removed (no revocable credentials)</li>`).join('')}</ul></div>`;
+            }
+            if (errors.length > 0) {
+              warningsHtml += `<div style="margin-top: 8px; padding: 8px; background-color: #fef2f2; border-left: 3px solid #ef4444; border-radius: 4px;"><strong>❌ Errors:</strong><ul style="margin: 4px 0; padding-left: 20px; font-size: 0.9em;">${errors.map(e => `<li>${e}</li>`).join('')}</ul></div>`;
+            }
+            
             return `
               <div class="proof-record ${cssClass}">
                 <h3>Presentation ${record.pres_ex_id ? record.pres_ex_id.substring(0, 8) + '...' : 'Unknown'}</h3>
                 <p><strong>Connection:</strong> ${record.connection_id.substring(0, 8)}...</p>
-                <p><strong>State:</strong> <span class="badge ${isVerified ? 'verified' : 'pending'}">${record.state}</span></p>
-                ${verifiedStatus ? '<p><strong>✅ Cryptographic Verification:</strong> <span style="color: #22c55e; font-weight: 600;">PASSED</span></p>' : ''}
-                ${!verifiedStatus && isVerified ? '<p><strong>❌ Cryptographic Verification:</strong> <span style="color: #ef4444; font-weight: 600;">FAILED</span></p>' : ''}
+                <p><strong>State:</strong> <span class="badge ${isDone ? 'verified' : 'pending'}">${record.state}</span></p>
+                ${effectivelyVerified ? '<p><strong>✅ Cryptographic Verification:</strong> <span style="color: #22c55e; font-weight: 600;">PASSED</span></p>' : ''}
+                ${!effectivelyVerified && isDone ? '<p><strong>❌ Cryptographic Verification:</strong> <span style="color: #ef4444; font-weight: 600;">FAILED</span></p>' : ''}
                 ${revealedAttrs}
+                ${warningsHtml}
                 <div class="button-row">
                   <button onclick="viewProofDetails('${record.pres_ex_id}')">View Full Details</button>
                 </div>
@@ -589,13 +612,23 @@
     function displayProofModal(record) {
       const modalBody = document.getElementById('modalBody');
       
-      // Determine verification status: null = pending, 'true' = passed, 'false' = failed
+      // Check for warnings vs errors (same logic as list view)
+      const verifiedMsgs = record.verified_msgs || [];
+      const warnings = verifiedMsgs.filter(msg => msg === 'RMV_GLB_NRI');
+      const errors = verifiedMsgs.filter(msg => msg !== 'RMV_GLB_NRI');
+      const hasOnlyWarnings = errors.length === 0 && warnings.length > 0;
+      
+      // Determine verification status
       let verificationStatus, verificationClass, verificationIcon;
-      if (record.verified === null || record.verified === undefined) {
+      const isDone = record.state === 'done' || record.state === 'verified';
+      const verifiedStatus = record.verified === 'true' || record.verified === true;
+      const effectivelyVerified = verifiedStatus || (isDone && hasOnlyWarnings);
+      
+      if (!isDone) {
         verificationStatus = 'PENDING';
         verificationClass = 'pending';
         verificationIcon = '⏳';
-      } else if (record.verified === 'true' || record.verified === true) {
+      } else if (effectivelyVerified) {
         verificationStatus = 'PASSED';
         verificationClass = 'passed';
         verificationIcon = '✅';
@@ -603,6 +636,31 @@
         verificationStatus = 'FAILED';
         verificationClass = 'failed';
         verificationIcon = '❌';
+      }
+      
+      // Build warnings/errors display
+      let warningsHtml = '';
+      if (warnings.length > 0) {
+        warningsHtml = `
+          <div class="detail-row">
+            <div class="detail-label">⚠️ Warnings:</div>
+            <div class="detail-value" style="background-color: #fffbeb; padding: 8px; border-left: 3px solid #f59e0b; border-radius: 4px;">
+              <ul style="margin: 0; padding-left: 20px;">
+                <li>Non-revocation interval removed (no revocable credentials)</li>
+              </ul>
+            </div>
+          </div>`;
+      }
+      if (errors.length > 0) {
+        warningsHtml += `
+          <div class="detail-row">
+            <div class="detail-label">❌ Errors:</div>
+            <div class="detail-value" style="background-color: #fef2f2; padding: 8px; border-left: 3px solid #ef4444; border-radius: 4px;">
+              <ul style="margin: 0; padding-left: 20px;">
+                ${errors.map(e => `<li>${e}</li>`).join('')}
+              </ul>
+            </div>
+          </div>`;
       }
       
       let html = `
@@ -618,7 +676,7 @@
           </div>
           <div class="detail-row">
             <div class="detail-label">State:</div>
-            <div class="detail-value"><span class="badge ${record.state === 'verified' ? 'verified' : 'pending'}">${record.state}</span></div>
+            <div class="detail-value"><span class="badge ${isDone ? 'verified' : 'pending'}">${record.state}</span></div>
           </div>
           <div class="detail-row">
             <div class="detail-label">Cryptographic Verification:</div>
@@ -628,6 +686,7 @@
               </span>
             </div>
           </div>
+          ${warningsHtml}
         </div>
       `;
       

@@ -119,6 +119,7 @@ services:
       --auto-respond-presentation-request
       --auto-verify-presentation
       --public-invites
+      --webhook-url http://verifier-app:8091/webhooks
       --log-level info
     ports:
       - "11002:11000"

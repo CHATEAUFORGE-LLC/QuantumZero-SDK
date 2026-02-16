@@ -357,7 +357,7 @@ impl AcaPyClient {
 
     /// Webhook handler to receive notifications from ACA-Py
     /// This helps detect when presentations arrive even if correlation fails
-    pub async fn handle_webhook(&self, topic: &str, payload: serde_json::Value) -> Result<()> {
+    pub async fn handle_webhook(&self, topic: &str, payload: serde_json::Value) -> Result<serde_json::Value> {
         tracing::info!("Received webhook: topic={}, payload={:?}", topic, payload);
         
         match topic {
@@ -371,5 +371,6 @@ impl AcaPyClient {
             }
         }
         
-        Ok(())    }
+        Ok(payload)
+    }
 }

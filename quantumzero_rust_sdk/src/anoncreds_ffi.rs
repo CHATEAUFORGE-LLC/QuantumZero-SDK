@@ -302,13 +302,91 @@ pub unsafe extern "C" fn qz_create_presentation(
     eprintln!("[FFI] Prepared {} credential entries for presentation", present_credentials.len());
     eprintln!("[FFI] Using {} schemas and {} cred_defs", credential_schemas.len(), credential_cred_defs.len());
     
-    // Build PresentCredentials for AnonCreds-RS
-    // Add all unique credentials - deduplication happens naturally because HashMap uses wallet cred ID
+    // Build PresentCredentials for AnonCreds-RS with EXPLICIT attribute/predicate mapping
+    // CRITICAL: We must tell AnonCreds which attributes/predicates each credential will prove
     let mut present_creds = PresentCredentials::default();
     
+    // Extract requested attributes and predicates from presentation request
+    let requested_attrs = pres_req_value.get("requested_attributes")
+        .and_then(|v| v.as_object())
+        .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<HashMap<_, _>>())
+        .unwrap_or_default();
+    
+    let requested_preds = pres_req_value.get("requested_predicates")
+        .and_then(|v| v.as_object())
+        .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<HashMap<_, _>>())
+        .unwrap_or_default();
+    
+    eprintln!("[FFI] Presentation request has {} attributes, {} predicates", 
+        requested_attrs.len(), requested_preds.len());
+    
+    // Build mapping: wallet_cred_referent -> (list of attr referents, list of pred referents)
+    let mut cred_to_attrs: HashMap<String, Vec<String>> = HashMap::new();
+    let mut cred_to_preds: HashMap<String, Vec<String>> = HashMap::new();
+    
+    // Map presentation request referents to wallet credential referents
+    for (pres_req_referent, cred_data) in credentials.iter() {
+        let wallet_cred_referent = cred_data.get("cred_info")
+            .and_then(|ci| ci.get("referent"))
+            .and_then(|r| r.as_str())
+            .unwrap_or(pres_req_referent);
+        
+        // Check if this presentation referent is for an attribute
+        if requested_attrs.contains_key(pres_req_referent) {
+            cred_to_attrs.entry(wallet_cred_referent.to_string())
+                .or_insert_with(Vec::new)
+                .push(pres_req_referent.to_string());
+            eprintln!("[FFI] Attribute '{}' → credential '{}'", 
+                pres_req_referent, wallet_cred_referent);
+        }
+        
+        // Check if this presentation referent is for a predicate
+        if requested_preds.contains_key(pres_req_referent) {
+            cred_to_preds.entry(wallet_cred_referent.to_string())
+                .or_insert_with(Vec::new)
+                .push(pres_req_referent.to_string());
+            eprintln!("[FFI] Predicate '{}' → credential '{}'", 
+                pres_req_referent, wallet_cred_referent);
+        }
+    }
+    
+    // Add each credential with its mapped attributes and predicates
     for (wallet_cred_ref, cred) in present_credentials.iter() {
-        eprintln!("[FFI] Adding credential to presentation: {}", wallet_cred_ref);
-        present_creds.add_credential(cred, None, None);
+        let attrs = cred_to_attrs.get(wallet_cred_ref);
+        let preds = cred_to_preds.get(wallet_cred_ref);
+        
+        eprintln!("[FFI] Adding credential '{}' with {} attrs, {} preds", 
+            wallet_cred_ref,
+            attrs.map(|v| v.len()).unwrap_or(0),
+            preds.map(|v| v.len()).unwrap_or(0)
+        );
+        
+        // Add credential with timestamp (None) and revocation state (None)
+        let mut builder = present_creds.add_credential(cred, None, None);
+        
+        // Add requested attributes
+        if let Some(attr_refs) = attrs {
+            for attr_ref in attr_refs {
+                // Check if this attribute should be revealed (from presentation request referent)
+                let revealed = credentials.get(attr_ref.as_str())
+                    .and_then(|v| v.as_object())
+                    .and_then(|obj| obj.get("revealed"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                
+                builder.add_requested_attribute(attr_ref, revealed);
+                eprintln!("[FFI]   Attribute '{}' → credential '{}' (revealed: {})", 
+                    attr_ref, wallet_cred_ref, revealed);
+            }
+        }
+        
+        // Add requested predicates
+        if let Some(pred_refs) = preds {
+            for pred_ref in pred_refs {
+                builder.add_requested_predicate(pred_ref);
+                eprintln!("[FFI]   Predicate '{}' → credential '{}'", pred_ref, wallet_cred_ref);
+            }
+        }
     }
     
     let num_creds = present_credentials.len();
