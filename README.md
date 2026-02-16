@@ -41,6 +41,108 @@ quantumzero_rust_sdk = { git = "https://github.com/CHATEAUFORGE-LLC/QuantumZero-
 
 [View Rust SDK Documentation →](./quantumzero_rust_sdk/README.md)
 
+## Android Native Library Build (Rust SDK)
+This section documents how to build the Android `.so` library (`libquantumzero_rust_sdk.so`) from the Rust SDK and deploy it to the Flutter app.
+
+### Prerequisites
+- Android NDK 28.2.13676358 or later
+- Rust target `aarch64-linux-android`
+
+Install the NDK (Android Studio SDK Manager or `sdkmanager`):
+```bash
+sdkmanager --install "ndk;28.2.13676358"
+```
+Default NDK location: `/home/<user>/Android/Sdk/ndk/28.2.13676358`
+
+Add the Rust target:
+```bash
+rustup target add aarch64-linux-android
+```
+Verify the target is installed:
+```bash
+rustup target list | grep aarch64-linux-android
+```
+
+### Build Steps
+1. Set environment variables for the NDK toolchain:
+```bash
+export NDK_HOME=/home/<user>/Android/Sdk/ndk/28.2.13676358
+export PATH="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
+export CC_aarch64_linux_android=aarch64-linux-android34-clang
+export AR_aarch64_linux_android=llvm-ar
+export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=aarch64-linux-android34-clang
+```
+
+2. Optional clean build:
+```bash
+cd /path/to/QuantumZero-sdk/quantumzero_rust_sdk
+cargo clean
+```
+
+3. Build the Android library:
+```bash
+cd /path/to/QuantumZero-sdk/quantumzero_rust_sdk
+cargo build --release --target aarch64-linux-android
+```
+
+Full command with inline environment variables:
+```bash
+cd /path/to/QuantumZero-sdk/quantumzero_rust_sdk && NDK_HOME=/home/<user>/Android/Sdk/ndk/28.2.13676358 PATH="/home/<user>/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH" CC_aarch64_linux_android=aarch64-linux-android34-clang AR_aarch64_linux_android=llvm-ar CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=aarch64-linux-android34-clang cargo build --release --target aarch64-linux-android
+```
+
+### Output Location
+This repository is a Cargo workspace. The build output is placed in the workspace root `target/` directory, not inside the package subdirectory.
+
+Expected location:
+```
+/path/to/QuantumZero-sdk/target/aarch64-linux-android/release/libquantumzero_rust_sdk.so
+```
+
+Find the library if needed:
+```bash
+find /path/to/QuantumZero-sdk -name "libquantumzero_rust_sdk.so" -type f
+```
+
+### Deploy to Flutter App
+1. Copy the library to the Android `jniLibs` directory:
+```bash
+cp /path/to/QuantumZero-sdk/target/aarch64-linux-android/release/libquantumzero_rust_sdk.so    /path/to/QuantumZero-Mobile/android/app/src/main/jniLibs/arm64-v8a/
+```
+
+2. Verify the file is present:
+```bash
+ls -lh /path/to/QuantumZero-Mobile/android/app/src/main/jniLibs/arm64-v8a/libquantumzero_rust_sdk.so
+```
+
+3. Rebuild the Flutter app (hot reload is not sufficient for native libraries):
+```bash
+cd /path/to/QuantumZero-Mobile
+flutter clean
+flutter run
+```
+
+### Verification
+Look for logs in the Flutter console such as:
+```
+[FFI] Mapped pres_req referent 'X' to wallet cred 'Y'
+[AnonCredsFFI] Presentation generated successfully
+```
+
+### Troubleshooting
+- `error: linker cc not found`: ensure the `CC_aarch64_linux_android` and `CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER` env vars are set.
+- `No such file or directory` after build: confirm you are checking the workspace root `target/` directory.
+- OpenSSL build errors: build with `--features vendored`.
+- Wrong NDK version: verify with `ls ~/Android/Sdk/ndk/`.
+
+### Architecture Notes
+| Flutter/Android | Rust Target | JNI Directory |
+|----------------|-------------|---------------|
+| arm64-v8a | aarch64-linux-android | `jniLibs/arm64-v8a/` |
+| armeabi-v7a | armv7-linux-androideabi | `jniLibs/armeabi-v7a/` |
+| x86_64 | x86_64-linux-android | `jniLibs/x86_64/` |
+
+Currently only `arm64-v8a` is built and shipped.
+
 ## Reference Apps
 
 ### Issuer App (`issuer_app`)
